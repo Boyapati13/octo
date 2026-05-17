@@ -856,7 +856,7 @@ class _DropCanvas(QWidget):
 
 
 class SetupOverlay(QWidget):
-    done = pyqtSignal(str, str)
+    done = pyqtSignal(str, str, str)   # key, os_name, ollama_url
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -897,6 +897,8 @@ class SetupOverlay(QWidget):
 
         layout.addWidget(_lbl("GEMINI API KEY", 8, color=C.TEXT_DIM,
                                align=Qt.AlignmentFlag.AlignLeft))
+        layout.addWidget(_lbl("Required for voice · Text falls back to Ollama if omitted",
+                               7, color="#4a6a7a", align=Qt.AlignmentFlag.AlignLeft))
         self._key_input = QLineEdit()
         self._key_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._key_input.setPlaceholderText("AIza…")
@@ -910,6 +912,28 @@ class SetupOverlay(QWidget):
             QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
         """)
         layout.addWidget(self._key_input)
+        layout.addSpacing(10)
+
+        sep3 = QFrame(); sep3.setFrameShape(QFrame.Shape.HLine)
+        sep3.setStyleSheet(f"color: {C.BORDER};"); layout.addWidget(sep3)
+        layout.addSpacing(4)
+
+        layout.addWidget(_lbl("OLLAMA URL  (optional — local AI backup)",
+                               8, color=C.TEXT_DIM, align=Qt.AlignmentFlag.AlignLeft))
+        layout.addWidget(_lbl("Auto-selects best installed model (Gemma, Llama, Mistral…)",
+                               7, color="#4a6a7a", align=Qt.AlignmentFlag.AlignLeft))
+        self._ollama_input = QLineEdit()
+        self._ollama_input.setPlaceholderText("http://localhost:11434")
+        self._ollama_input.setFont(QFont("Courier New", 10))
+        self._ollama_input.setFixedHeight(32)
+        self._ollama_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: #000d12; color: {C.TEXT};
+                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 4px 8px;
+            }}
+            QLineEdit:focus {{ border: 1px solid {C.ACC2}; }}
+        """)
+        layout.addWidget(self._ollama_input)
         layout.addSpacing(12)
 
         sep2 = QFrame(); sep2.setFrameShape(QFrame.Shape.HLine)
@@ -974,14 +998,15 @@ class SetupOverlay(QWidget):
                 """)
 
     def _submit(self):
-        key = self._key_input.text().strip()
-        if not key:
+        key        = self._key_input.text().strip()
+        ollama_url = self._ollama_input.text().strip() or "http://localhost:11434"
+        if not key and ollama_url == "http://localhost:11434":
             self._key_input.setStyleSheet(
                 self._key_input.styleSheet() +
                 f" QLineEdit {{ border: 1px solid {C.RED}; }}"
             )
             return
-        self.done.emit(key, self._sel_os)
+        self.done.emit(key, self._sel_os, ollama_url)
 
 
 class MainWindow(QMainWindow):
@@ -1424,7 +1449,7 @@ class MainWindow(QMainWindow):
     def _show_setup(self):
         ov = SetupOverlay(self.centralWidget())
         cw = self.centralWidget()
-        ow, oh = 460, 390
+        ow, oh = 480, 520
         ov.setGeometry(
             (cw.width()  - ow) // 2,
             (cw.height() - oh) // 2,
@@ -1434,10 +1459,16 @@ class MainWindow(QMainWindow):
         ov.show()
         self._overlay = ov
 
-    def _on_setup_done(self, key: str, os_name: str):
+    def _on_setup_done(self, key: str, os_name: str, ollama_url: str):
         os.makedirs(CONFIG_DIR, exist_ok=True)
         API_FILE.write_text(
-            json.dumps({"gemini_api_key": key, "os_system": os_name}, indent=4),
+            json.dumps({
+                "gemini_api_key":    key,
+                "os_system":         os_name,
+                "ollama_base_url":   ollama_url or "http://localhost:11434",
+                "ollama_model":      "",
+                "text_llm_provider": "auto",
+            }, indent=4),
             encoding="utf-8",
         )
         self._ready = True

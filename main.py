@@ -621,10 +621,11 @@ class OctoLive:
                 threading.Thread(
                     target=screen_process,
                     kwargs={"parameters": args, "response": None,
-                            "player": self.ui, "session_memory": None},
+                            "player": self.ui, "session_memory": None,
+                            "speak": self.speak},
                     daemon=True
                 ).start()
-                result = "Vision module activated. Stay completely silent — vision module will speak directly."
+                result = "Vision module activated — analysing now."
 
             elif name == "computer_settings":
                 r = await loop.run_in_executor(None, lambda: computer_settings(parameters=args, response=None, player=self.ui))
