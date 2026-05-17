@@ -44,13 +44,23 @@ def ask(
     image_bytes: bytes | None = None,
     mime_type: str = "image/jpeg",
 ) -> str:
-    """Return a text response. Tries Gemini first, falls back to Ollama."""
-    cfg = _cfg()
-    key = cfg.get("gemini_api_key", "")
+    """Return a text response, honouring text_llm_provider from config."""
+    cfg      = _cfg()
+    provider = cfg.get("text_llm_provider", "auto").lower().strip()
+    key      = cfg.get("gemini_api_key", "")
+    has_key  = bool(key) and key not in ("", "YOUR_GEMINI_API_KEY_HERE")
 
-    if key and key not in ("", "YOUR_GEMINI_API_KEY_HERE"):
+    if provider == "ollama":
+        return _ollama(prompt, system, cfg)
+
+    # gemini-specific model override
+    model = TEXT_MODEL
+    if provider not in ("auto", "ollama", ""):
+        model = provider      # e.g. "gemini-3.1-pro-preview-customtools"
+
+    if provider != "ollama" and has_key:
         try:
-            return _gemini(prompt, system, image_bytes, mime_type, key)
+            return _gemini(prompt, system, image_bytes, mime_type, key, model=model)
         except Exception as e:
             print(f"[TextLLM] Gemini failed ({e.__class__.__name__}: {e}) — trying Ollama")
 
@@ -63,6 +73,7 @@ def _gemini(
     image_bytes: bytes | None,
     mime_type: str,
     key: str,
+    model: str = TEXT_MODEL,
 ) -> str:
     from google import genai
     from google.genai import types
@@ -75,7 +86,7 @@ def _gemini(
 
     cfg = types.GenerateContentConfig(system_instruction=system) if system else None
     resp = client.models.generate_content(
-        model=TEXT_MODEL,
+        model=model,
         contents=parts,
         config=cfg,
     )

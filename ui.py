@@ -1009,6 +1009,247 @@ class SetupOverlay(QWidget):
         self.done.emit(key, self._sel_os, ollama_url)
 
 
+# ---------------------------------------------------------------------------
+# Settings overlay — accessible any time via the ⚙ button in the header
+# ---------------------------------------------------------------------------
+class SettingsOverlay(QWidget):
+    saved = pyqtSignal()
+
+    _TEXT_MODELS = [
+        ("Auto  (Gemini → Ollama)",          "auto"),
+        ("gemini-3.1-pro-preview",            "gemini-3.1-pro-preview"),
+        ("gemini-3.1-pro-preview-customtools","gemini-3.1-pro-preview-customtools"),
+        ("gemini-2.5-flash",                  "gemini-2.5-flash"),
+        ("Ollama only  (local)",              "ollama"),
+    ]
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(f"""
+            SettingsOverlay {{
+                background: rgba(0,6,10,250);
+                border: 1px solid {C.BORDER_B};
+                border-radius: 6px;
+            }}
+        """)
+        self._cfg = self._load_cfg()
+        self._build_ui()
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+    @staticmethod
+    def _load_cfg() -> dict:
+        try:
+            return json.loads(API_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _save_cfg(data: dict):
+        import os as _os
+        _os.makedirs(CONFIG_DIR, exist_ok=True)
+        API_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+
+    @staticmethod
+    def _fetch_ollama_models(base_url: str) -> list[str]:
+        try:
+            import requests
+            r = requests.get(f"{base_url.rstrip('/')}/api/tags", timeout=4)
+            r.raise_for_status()
+            return [m["name"] for m in r.json().get("models", [])]
+        except Exception:
+            return []
+
+    # ── build ─────────────────────────────────────────────────────────────────
+    def _build_ui(self):
+        cfg = self._cfg
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(28, 20, 28, 20)
+        lay.setSpacing(7)
+
+        def _lbl(txt, size=9, bold=False, color=C.PRI,
+                 align=Qt.AlignmentFlag.AlignLeft):
+            w = QLabel(txt)
+            w.setAlignment(align)
+            w.setFont(QFont("Courier New", size,
+                            QFont.Weight.Bold if bold else QFont.Weight.Normal))
+            w.setStyleSheet(f"color: {color}; background: transparent;")
+            return w
+
+        def _sep():
+            s = QFrame(); s.setFrameShape(QFrame.Shape.HLine)
+            s.setStyleSheet(f"color: {C.BORDER};")
+            return s
+
+        def _field(placeholder="", echo=False, value=""):
+            f = QLineEdit(value)
+            f.setPlaceholderText(placeholder)
+            f.setFont(QFont("Courier New", 10))
+            f.setFixedHeight(30)
+            if echo:
+                f.setEchoMode(QLineEdit.EchoMode.Password)
+            f.setStyleSheet(f"""
+                QLineEdit {{
+                    background: #000d12; color: {C.TEXT};
+                    border: 1px solid {C.BORDER}; border-radius: 3px;
+                    padding: 3px 8px;
+                }}
+                QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
+            """)
+            return f
+
+        # ── title ──
+        lay.addWidget(_lbl("⚙  OCTO SETTINGS", 13, True, C.PRI,
+                           Qt.AlignmentFlag.AlignCenter))
+        lay.addWidget(_sep())
+        lay.addSpacing(2)
+
+        # ── Gemini API key ──
+        lay.addWidget(_lbl("GEMINI API KEY", 8, color=C.TEXT_DIM))
+        self._key_f = _field("AIza…", echo=True,
+                              value=cfg.get("gemini_api_key", ""))
+        lay.addWidget(self._key_f)
+        lay.addSpacing(4)
+
+        # ── Text model selector ──
+        lay.addWidget(_sep())
+        lay.addSpacing(2)
+        lay.addWidget(_lbl("TEXT MODEL  (vision · summaries · code)", 8, color=C.TEXT_DIM))
+        lay.addWidget(_lbl("Voice always uses Gemini Live API regardless of this setting",
+                           7, color="#3a6070"))
+
+        btn_row = QHBoxLayout(); btn_row.setSpacing(5)
+        self._model_btns: dict[str, QPushButton] = {}
+        cur_model = cfg.get("text_llm_provider", "auto")
+        for label, key in self._TEXT_MODELS:
+            b = QPushButton(label)
+            b.setFont(QFont("Courier New", 8))
+            b.setFixedHeight(28)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.clicked.connect(lambda _, k=key: self._sel_model(k))
+            btn_row.addWidget(b)
+            self._model_btns[key] = b
+        lay.addLayout(btn_row)
+        self._sel_model(cur_model)
+        lay.addSpacing(4)
+
+        # ── Ollama ──
+        lay.addWidget(_sep())
+        lay.addSpacing(2)
+        lay.addWidget(_lbl("LOCAL AI — OLLAMA", 8, color=C.TEXT_DIM))
+
+        url_row = QHBoxLayout(); url_row.setSpacing(6)
+        self._ollama_url_f = _field("http://localhost:11434",
+                                    value=cfg.get("ollama_base_url", "http://localhost:11434"))
+        detect_btn = QPushButton("⟳  Detect Models")
+        detect_btn.setFont(QFont("Courier New", 8))
+        detect_btn.setFixedHeight(30)
+        detect_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        detect_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: #000d12; color: {C.ACC2};
+                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 0 8px;
+            }}
+            QPushButton:hover {{ border: 1px solid {C.ACC2}; }}
+        """)
+        detect_btn.clicked.connect(self._detect_models)
+        url_row.addWidget(self._ollama_url_f, stretch=3)
+        url_row.addWidget(detect_btn, stretch=1)
+        lay.addLayout(url_row)
+
+        lay.addWidget(_lbl("OLLAMA MODEL  (leave blank = auto-select best installed)",
+                           7, color="#3a6070"))
+        self._ollama_mod_f = _field("auto  (e.g. gemma3, llama3.2, mistral…)",
+                                    value=cfg.get("ollama_model", ""))
+        lay.addWidget(self._ollama_mod_f)
+
+        self._detected_lbl = _lbl("", 7, color=C.GREEN)
+        lay.addWidget(self._detected_lbl)
+        lay.addSpacing(4)
+
+        # ── Save / Close ──
+        lay.addWidget(_sep())
+        btn_row2 = QHBoxLayout(); btn_row2.setSpacing(8)
+
+        close_btn = QPushButton("✕  Close")
+        close_btn.setFont(QFont("Courier New", 9))
+        close_btn.setFixedHeight(34)
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {C.TEXT_DIM};
+                border: 1px solid {C.BORDER}; border-radius: 3px;
+            }}
+            QPushButton:hover {{ color: {C.TEXT}; border: 1px solid {C.BORDER_B}; }}
+        """)
+        close_btn.clicked.connect(self.hide)
+
+        save_btn = QPushButton("▸  SAVE SETTINGS")
+        save_btn.setFont(QFont("Courier New", 10, QFont.Weight.Bold))
+        save_btn.setFixedHeight(34)
+        save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        save_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {C.PRI};
+                border: 1px solid {C.PRI_DIM}; border-radius: 3px;
+            }}
+            QPushButton:hover {{ background: {C.PRI_GHO}; border: 1px solid {C.PRI}; }}
+        """)
+        save_btn.clicked.connect(self._save)
+
+        btn_row2.addWidget(close_btn)
+        btn_row2.addWidget(save_btn, stretch=1)
+        lay.addLayout(btn_row2)
+
+    # ── interactions ──────────────────────────────────────────────────────────
+    def _sel_model(self, key: str):
+        self._sel_model_key = key
+        for k, btn in self._model_btns.items():
+            if k == key:
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background: {C.PRI}; color: #001a22;
+                        border: none; border-radius: 3px; font-weight: bold;
+                    }}
+                """)
+            else:
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background: #000d12; color: {C.TEXT_DIM};
+                        border: 1px solid {C.BORDER}; border-radius: 3px;
+                    }}
+                    QPushButton:hover {{ color: {C.TEXT}; border: 1px solid {C.BORDER_B}; }}
+                """)
+
+    def _detect_models(self):
+        url = self._ollama_url_f.text().strip() or "http://localhost:11434"
+        models = self._fetch_ollama_models(url)
+        if models:
+            self._detected_lbl.setText("Found: " + "  ·  ".join(models[:6]))
+            # pre-fill model field with best match
+            prefer = ["gemma3", "gemma2", "llama3.2", "llama3", "mistral", "phi3"]
+            for p in prefer:
+                for m in models:
+                    if m.startswith(p.split(":")[0]):
+                        if not self._ollama_mod_f.text().strip():
+                            self._ollama_mod_f.setText(m)
+                        break
+        else:
+            self._detected_lbl.setText("No models found — is Ollama running?")
+            self._detected_lbl.setStyleSheet(f"color: {C.ACC}; background: transparent;")
+
+    def _save(self):
+        cfg = self._load_cfg()
+        cfg["gemini_api_key"]    = self._key_f.text().strip()
+        cfg["ollama_base_url"]   = self._ollama_url_f.text().strip() or "http://localhost:11434"
+        cfg["ollama_model"]      = self._ollama_mod_f.text().strip()
+        cfg["text_llm_provider"] = getattr(self, "_sel_model_key", "auto")
+        self._save_cfg(cfg)
+        self.saved.emit()
+        self.hide()
+
+
 class MainWindow(QMainWindow):
     _log_sig   = pyqtSignal(str)
     _state_sig = pyqtSignal(str)
@@ -1070,6 +1311,7 @@ class MainWindow(QMainWindow):
         self._state_sig.connect(self._apply_state)
 
         self._overlay: SetupOverlay | None = None
+        self._settings_overlay: SettingsOverlay | None = None
         self._ready = self._check_config()
         if not self._ready:
             self._show_setup()
@@ -1085,12 +1327,43 @@ class MainWindow(QMainWindow):
         else:
             self.showFullScreen()
 
+    def _show_settings(self):
+        if self._settings_overlay is None:
+            self._settings_overlay = SettingsOverlay(self.centralWidget())
+            self._settings_overlay.saved.connect(self._on_settings_saved)
+        else:
+            # refresh config each time it opens
+            self._settings_overlay._cfg = SettingsOverlay._load_cfg()
+            self._settings_overlay.deleteLater()
+            self._settings_overlay = SettingsOverlay(self.centralWidget())
+            self._settings_overlay.saved.connect(self._on_settings_saved)
+        cw = self.centralWidget()
+        ow, oh = 640, 500
+        self._settings_overlay.setGeometry(
+            (cw.width()  - ow) // 2,
+            (cw.height() - oh) // 2,
+            ow, oh,
+        )
+        self._settings_overlay.show()
+        self._settings_overlay.raise_()
+
+    def _on_settings_saved(self):
+        self._log.append_log("SYS: Settings saved.")
+        self._ready = self._check_config()
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        cw = self.centralWidget()
         if self._overlay and self._overlay.isVisible():
-            ow, oh = 460, 390
-            cw = self.centralWidget()
+            ow, oh = 480, 520
             self._overlay.setGeometry(
+                (cw.width()  - ow) // 2,
+                (cw.height() - oh) // 2,
+                ow, oh,
+            )
+        if self._settings_overlay and self._settings_overlay.isVisible():
+            ow, oh = 640, 500
+            self._settings_overlay.setGeometry(
                 (cw.width()  - ow) // 2,
                 (cw.height() - oh) // 2,
                 ow, oh,
@@ -1161,6 +1434,22 @@ class MainWindow(QMainWindow):
             return l
 
         lay.addWidget(_badge("OCTO", C.PRI_DIM))
+
+        settings_btn = QPushButton("⚙")
+        settings_btn.setFont(QFont("Courier New", 13))
+        settings_btn.setFixedSize(34, 34)
+        settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        settings_btn.setToolTip("Settings")
+        settings_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {C.PRI_DIM};
+                border: 1px solid {C.BORDER}; border-radius: 4px;
+            }}
+            QPushButton:hover {{ color: {C.PRI}; border: 1px solid {C.PRI}; }}
+        """)
+        settings_btn.clicked.connect(self._show_settings)
+        lay.addWidget(settings_btn)
+
         lay.addStretch()
 
         mid = QVBoxLayout(); mid.setSpacing(1)
