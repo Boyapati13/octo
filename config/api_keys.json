@@ -5,7 +5,7 @@
     "openrouter_api_key": "",
     "hf_token": "",
     "os_system": "windows",
-    "text_llm_provider": "gemini-3.1-pro-preview",
+    "text_llm_provider": "gemini-2.5-flash",
     "text_llm_model": "",
     "sovereign_fallback_model": "qwen2.5-coder:1.5b-base",
     "ollama_base_url": "http://localhost:11434",

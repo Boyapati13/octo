@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 _CFG_PATH          = Path(__file__).parent.parent / "config" / "api_keys.json"
-TEXT_MODEL         = "gemini-3.1-pro-preview"
+TEXT_MODEL         = "gemini-2.5-flash"   # free-tier quota; override via text_llm_provider
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
 # Preferred local models in priority order — first one found wins
 _OLLAMA_PREFER = ["gemma3:latest", "gemma3", "gemma2", "llama3.2", "llama3", "mistral", "phi3"]
@@ -99,8 +99,16 @@ def _ollama(prompt: str, system: str, cfg: dict) -> str:
     base  = cfg.get("ollama_base_url", DEFAULT_OLLAMA_URL).rstrip("/")
     model = cfg.get("ollama_model") or _detect_ollama_model(base)
     messages: list[dict] = []
+    # Force plain-text responses — some models default to tool/JSON format
+    hard_system = (
+        "You are OCTO, a helpful AI assistant. "
+        "ALWAYS respond in plain natural language. "
+        "NEVER return JSON, tool calls, or structured data. "
+        "Be concise and direct."
+    )
     if system:
-        messages.append({"role": "system", "content": system})
+        hard_system = hard_system + " " + system
+    messages.append({"role": "system", "content": hard_system})
     messages.append({"role": "user", "content": prompt})
 
     try:

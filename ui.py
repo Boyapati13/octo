@@ -1016,10 +1016,10 @@ class SettingsOverlay(QWidget):
     saved = pyqtSignal()
 
     _TEXT_MODELS = [
-        ("Auto  (Gemini → Ollama)",          "auto"),
-        ("gemini-3.1-pro-preview",            "gemini-3.1-pro-preview"),
-        ("gemini-3.1-pro-preview-customtools","gemini-3.1-pro-preview-customtools"),
-        ("gemini-2.5-flash",                  "gemini-2.5-flash"),
+        ("gemini-2.5-flash  (recommended)",   "gemini-2.5-flash"),
+        ("gemini-3.1-pro-preview  (paid)",    "gemini-3.1-pro-preview"),
+        ("gemini-3.1-pro-customtools  (paid)","gemini-3.1-pro-preview-customtools"),
+        ("Auto  (Gemini → Ollama)",           "auto"),
         ("Ollama only  (local)",              "ollama"),
     ]
 

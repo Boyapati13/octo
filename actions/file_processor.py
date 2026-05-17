@@ -25,18 +25,39 @@ import tempfile
 from pathlib import Path
 from datetime import datetime
 
-import google.generativeai as genai
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from core.text_llm import ask as _llm_ask
 
 
-def _get_api_key() -> str:
-    config_path = Path(__file__).resolve().parent.parent / "config" / "api_keys.json"
-    with open(config_path, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+def _ask(prompt: str, image_bytes: bytes = None, mime_type: str = "image/jpeg") -> str:
+    return _llm_ask(prompt=prompt, image_bytes=image_bytes, mime_type=mime_type)
 
+
+# shim so existing call sites work without change
+class _FakeModel:
+    def __init__(self, image_bytes=None, mime=None):
+        self._img = image_bytes
+        self._mime = mime or "image/jpeg"
+    def generate_content(self, arg):
+        if isinstance(arg, list):
+            text_parts, img_bytes, mime = [], self._img, self._mime
+            for item in arg:
+                if isinstance(item, str):
+                    text_parts.append(item)
+                elif hasattr(item, "tobytes"):   # PIL image
+                    import io
+                    buf = io.BytesIO()
+                    item.save(buf, format="JPEG", quality=85)
+                    img_bytes = buf.getvalue(); mime = "image/jpeg"
+                elif isinstance(item, dict) and "data" in item:
+                    img_bytes = item["data"]; mime = item.get("mime_type", mime)
+            prompt = " ".join(text_parts)
+            return type("R", (), {"text": _llm_ask(prompt, image_bytes=img_bytes, mime_type=mime)})()
+        return type("R", (), {"text": _llm_ask(str(arg))})()
 
 def _gemini_client():
-    genai.configure(api_key=_get_api_key())
-    return genai.GenerativeModel("gemini-2.5-flash")
+    return _FakeModel()
 
 
 def _detect_type(path: Path) -> str:
