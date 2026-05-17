@@ -550,11 +550,10 @@ class OctoLive:
 
         return types.LiveConnectConfig(
             response_modalities=["AUDIO"],
-            output_audio_transcription={},
-            input_audio_transcription={},
+            output_audio_transcription=types.AudioTranscriptionConfig(),
+            input_audio_transcription=types.AudioTranscriptionConfig(),
             system_instruction="\n".join(parts),
             tools=[{"function_declarations": TOOL_DECLARATIONS}],
-            session_resumption=types.SessionResumptionConfig(),
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(
@@ -699,6 +698,14 @@ class OctoLive:
             id=fc.id, name=name,
             response={"result": result}
         )
+
+    async def _greet(self):
+        await asyncio.sleep(0.8)   # let audio streams fully start
+        if self.session:
+            await self.session.send_client_content(
+                turns={"parts": [{"text": "Greet the user in one short sentence and say you are ready."}]},
+                turn_complete=True,
+            )
 
     async def _send_realtime(self):
         while True:
@@ -851,16 +858,11 @@ class OctoLive:
                     self.ui.set_state("LISTENING")
                     self.ui.write_log("SYS: OCTO online.")
 
-                    # Spoken greeting so user knows OCTO is ready
-                    await session.send_client_content(
-                        turns={"parts": [{"text": "Greet the user very briefly — one short sentence — and let them know you are ready."}]},
-                        turn_complete=True,
-                    )
-
                     tg.create_task(self._send_realtime())
                     tg.create_task(self._listen_audio())
                     tg.create_task(self._receive_audio())
                     tg.create_task(self._play_audio())
+                    tg.create_task(self._greet())
 
             except Exception as e:
                 print(f"[OCTO] ⚠️ {e}")

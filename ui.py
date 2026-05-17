@@ -1328,15 +1328,11 @@ class MainWindow(QMainWindow):
             self.showFullScreen()
 
     def _show_settings(self):
-        if self._settings_overlay is None:
-            self._settings_overlay = SettingsOverlay(self.centralWidget())
-            self._settings_overlay.saved.connect(self._on_settings_saved)
-        else:
-            # refresh config each time it opens
-            self._settings_overlay._cfg = SettingsOverlay._load_cfg()
+        # Always rebuild so it reflects the latest saved config
+        if self._settings_overlay is not None:
             self._settings_overlay.deleteLater()
-            self._settings_overlay = SettingsOverlay(self.centralWidget())
-            self._settings_overlay.saved.connect(self._on_settings_saved)
+        self._settings_overlay = SettingsOverlay(self.centralWidget())
+        self._settings_overlay.saved.connect(self._on_settings_saved)
         cw = self.centralWidget()
         ow, oh = 640, 500
         self._settings_overlay.setGeometry(
@@ -1346,10 +1342,17 @@ class MainWindow(QMainWindow):
         )
         self._settings_overlay.show()
         self._settings_overlay.raise_()
+        # Auto-focus the key field so user can type right away
+        self._settings_overlay._key_f.setFocus()
+        self._settings_overlay._key_f.selectAll()
 
     def _on_settings_saved(self):
-        self._log.append_log("SYS: Settings saved.")
+        was_ready   = self._ready
         self._ready = self._check_config()
+        if self._ready and not was_ready:
+            self._log.append_log("SYS: API key saved. OCTO connecting...")
+        else:
+            self._log.append_log("SYS: Settings saved.")
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1730,8 +1733,10 @@ class MainWindow(QMainWindow):
     def _check_config(self) -> bool:
         if not API_FILE.exists(): return False
         try:
-            d = json.loads(API_FILE.read_text(encoding="utf-8"))
-            return bool(d.get("gemini_api_key")) and bool(d.get("os_system"))
+            d    = json.loads(API_FILE.read_text(encoding="utf-8"))
+            key  = d.get("gemini_api_key", "")
+            invalid = ("", "YOUR_GEMINI_API_KEY_HERE", "YOUR_NEW_GEMINI_API_KEY_HERE")
+            return key not in invalid and bool(d.get("os_system"))
         except Exception:
             return False
 
@@ -1756,7 +1761,7 @@ class MainWindow(QMainWindow):
                 "os_system":         os_name,
                 "ollama_base_url":   ollama_url or "http://localhost:11434",
                 "ollama_model":      "",
-                "text_llm_provider": "auto",
+                "text_llm_provider": "gemini-2.5-flash",
             }, indent=4),
             encoding="utf-8",
         )
@@ -1765,7 +1770,7 @@ class MainWindow(QMainWindow):
             self._overlay.hide()
             self._overlay = None
         self._apply_state("LISTENING")
-        self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. OCTO online.")
+        self._log.append_log(f"SYS: API key saved. OCTO connecting...")
 
 class _RootShim:
     def __init__(self, app: QApplication):
