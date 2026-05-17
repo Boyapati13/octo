@@ -885,12 +885,19 @@ def main():
     ui = OctoUI("face.png")
 
     def runner():
-        ui.wait_for_api_key()
-        OCTO = OctoLive(ui)
         try:
+            ui.wait_for_api_key()
+            ui.write_log("SYS: Starting voice engine...")
+            print("[OCTO] wait_for_api_key done — launching OctoLive")
+            OCTO = OctoLive(ui)
             asyncio.run(OCTO.run())
         except KeyboardInterrupt:
-            print("\n🔴 Shutting down...")
+            print("\n[OCTO] Shutdown requested.")
+        except Exception as e:
+            msg = f"ERR: Voice engine failed — {e}"
+            print(f"[OCTO] {msg}")
+            traceback.print_exc()
+            ui.write_log(msg)
 
     threading.Thread(target=runner, daemon=True).start()
     ui.root.mainloop()

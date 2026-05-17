@@ -7,28 +7,64 @@ from pathlib import Path
 _CFG_PATH          = Path(__file__).parent.parent / "config" / "api_keys.json"
 TEXT_MODEL         = "gemini-2.5-flash"   # free-tier quota; override via text_llm_provider
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
-# Preferred local models in priority order — first one found wins
-_OLLAMA_PREFER = ["gemma3:latest", "gemma3", "gemma2", "llama3.2", "llama3", "mistral", "phi3"]
+# Preferred local models — gemma4 first, skip cloud-proxied ones
+_OLLAMA_PREFER = [
+    "gemma4", "gemma3", "gemma2",
+    "llama3.3", "llama3.2", "llama3.1", "llama3",
+    "qwen2.5", "mistral", "phi4", "phi3",
+]
+# Tags that mean the model is cloud-proxied (not truly local)
+_CLOUD_TAGS = (":cloud", ":remote", ":api")
+
+
+def _list_ollama_models_cli() -> list[str]:
+    """Run `ollama list` and return model names."""
+    try:
+        import subprocess
+        out = subprocess.check_output(
+            ["ollama", "list"], text=True, timeout=6,
+            creationflags=0x08000000 if __import__("sys").platform == "win32" else 0,
+        )
+        models = []
+        for line in out.strip().splitlines()[1:]:   # skip header
+            parts = line.split()
+            if parts:
+                models.append(parts[0])
+        return models
+    except Exception:
+        return []
 
 
 def _detect_ollama_model(base_url: str) -> str:
-    """Return the best available local Ollama model."""
-    try:
-        import requests
-        r = requests.get(f"{base_url.rstrip('/')}/api/tags", timeout=5)
-        r.raise_for_status()
-        installed = [m["name"] for m in r.json().get("models", [])]
-        for pref in _OLLAMA_PREFER:
-            for name in installed:
-                if name.startswith(pref.split(":")[0]):
-                    print(f"[TextLLM] Ollama model selected: {name}")
-                    return name
-        if installed:
-            print(f"[TextLLM] Ollama fallback to first available: {installed[0]}")
-            return installed[0]
-    except Exception:
-        pass
-    return "gemma3"
+    """Return the best truly-local Ollama model."""
+    # Try CLI first (most reliable)
+    installed = _list_ollama_models_cli()
+
+    # Fallback: query REST API
+    if not installed:
+        try:
+            import requests
+            r = requests.get(f"{base_url.rstrip('/')}/api/tags", timeout=5)
+            r.raise_for_status()
+            installed = [m["name"] for m in r.json().get("models", [])]
+        except Exception:
+            pass
+
+    # Filter out cloud-proxied models
+    local = [m for m in installed if not any(m.endswith(t) for t in _CLOUD_TAGS)]
+    pool  = local if local else installed   # if all are cloud, use them anyway
+
+    for pref in _OLLAMA_PREFER:
+        for name in pool:
+            if name.lower().startswith(pref.split(":")[0]):
+                print(f"[TextLLM] Ollama model selected: {name}")
+                return name
+
+    if pool:
+        print(f"[TextLLM] Ollama fallback to first available: {pool[0]}")
+        return pool[0]
+
+    return "gemma4"
 
 
 def _cfg() -> dict:

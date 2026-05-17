@@ -1134,6 +1134,19 @@ class SettingsOverlay(QWidget):
 
     @staticmethod
     def _fetch_ollama_models(base_url: str) -> list[str]:
+        # Try CLI first
+        try:
+            import subprocess, sys
+            flags = 0x08000000 if sys.platform == "win32" else 0
+            out = subprocess.check_output(
+                ["ollama", "list"], text=True, timeout=6, creationflags=flags,
+            )
+            models = [l.split()[0] for l in out.strip().splitlines()[1:] if l.split()]
+            if models:
+                return models
+        except Exception:
+            pass
+        # Fallback REST
         try:
             import requests
             r = requests.get(f"{base_url.rstrip('/')}/api/tags", timeout=4)
