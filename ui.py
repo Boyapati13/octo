@@ -44,6 +44,26 @@ _RIGHT_W = 340
 
 _OS = platform.system()  # "Windows" | "Darwin" | "Linux"
 
+_DEFAULT_LIVE_MODEL = "models/gemini-3.1-flash-live-preview"
+_DEFAULT_TEXT_MODEL = "gemini-2.5-flash"
+
+
+def _fetch_gemini_models(key: str) -> tuple[list[str], list[str]]:
+    """Returns (live_models, text_models) for the given API key."""
+    try:
+        from google import genai
+        client = genai.Client(api_key=key)
+        live, text = [], []
+        for m in client.models.list():
+            name = m.name
+            if "live" in name.lower():
+                live.append(name)
+            elif any(x in name.lower() for x in ("flash", "pro", "ultra")):
+                text.append(name)
+        return live, text
+    except Exception as e:
+        return [], []
+
 
 class C:
     BG        = "#00060a"
@@ -856,7 +876,7 @@ class _DropCanvas(QWidget):
 
 
 class SetupOverlay(QWidget):
-    done = pyqtSignal(str, str, str)   # key, os_name, ollama_url
+    done = pyqtSignal(str, str, str, str)   # key, os_name, ollama_url, live_model
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -912,6 +932,42 @@ class SetupOverlay(QWidget):
             QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
         """)
         layout.addWidget(self._key_input)
+
+        # Detect models row
+        detect_row = QHBoxLayout(); detect_row.setSpacing(6)
+        self._detect_btn = QPushButton("⟳  Detect Models")
+        self._detect_btn.setFont(QFont("Courier New", 8))
+        self._detect_btn.setFixedHeight(28)
+        self._detect_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._detect_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: #000d12; color: {C.ACC2};
+                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 0 10px;
+            }}
+            QPushButton:hover {{ border: 1px solid {C.ACC2}; }}
+        """)
+        self._detect_btn.clicked.connect(self._detect_models)
+        self._detect_lbl = QLabel("Enter key then click Detect →")
+        self._detect_lbl.setFont(QFont("Courier New", 7))
+        self._detect_lbl.setStyleSheet(f"color: #3a6070; background: transparent;")
+        detect_row.addWidget(self._detect_btn)
+        detect_row.addWidget(self._detect_lbl, stretch=1)
+        layout.addLayout(detect_row)
+        layout.addSpacing(6)
+
+        layout.addWidget(_lbl("VOICE MODEL  (Live API)", 8, color=C.TEXT_DIM,
+                               align=Qt.AlignmentFlag.AlignLeft))
+        self._live_model_input = QLineEdit(_DEFAULT_LIVE_MODEL)
+        self._live_model_input.setFont(QFont("Courier New", 9))
+        self._live_model_input.setFixedHeight(30)
+        self._live_model_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: #000d12; color: {C.TEXT};
+                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 3px 8px;
+            }}
+            QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
+        """)
+        layout.addWidget(self._live_model_input)
         layout.addSpacing(10)
 
         sep3 = QFrame(); sep3.setFrameShape(QFrame.Shape.HLine)
@@ -997,16 +1053,42 @@ class SetupOverlay(QWidget):
                     QPushButton:hover {{ color: {C.TEXT}; border: 1px solid {C.BORDER_B}; }}
                 """)
 
+    def _detect_models(self):
+        key = self._key_input.text().strip()
+        if not key:
+            self._detect_lbl.setText("Enter your API key first.")
+            return
+        self._detect_btn.setText("Detecting…")
+        self._detect_btn.setEnabled(False)
+        QApplication.processEvents()
+
+        import threading
+        def _run():
+            live, text = _fetch_gemini_models(key)
+            def _apply():
+                self._detect_btn.setText("⟳  Detect Models")
+                self._detect_btn.setEnabled(True)
+                if live:
+                    self._live_model_input.setText(live[0])
+                    self._detect_lbl.setText("Live: " + "  ·  ".join(live[:4]))
+                    self._detect_lbl.setStyleSheet(f"color: {C.GREEN}; background: transparent;")
+                else:
+                    self._detect_lbl.setText("No live models found — check key")
+                    self._detect_lbl.setStyleSheet(f"color: {C.ACC}; background: transparent;")
+            QTimer.singleShot(0, _apply)
+        threading.Thread(target=_run, daemon=True).start()
+
     def _submit(self):
         key        = self._key_input.text().strip()
         ollama_url = self._ollama_input.text().strip() or "http://localhost:11434"
+        live_model = self._live_model_input.text().strip() or _DEFAULT_LIVE_MODEL
         if not key and ollama_url == "http://localhost:11434":
             self._key_input.setStyleSheet(
                 self._key_input.styleSheet() +
                 f" QLineEdit {{ border: 1px solid {C.RED}; }}"
             )
             return
-        self.done.emit(key, self._sel_os, ollama_url)
+        self.done.emit(key, self._sel_os, ollama_url, live_model)
 
 
 # ---------------------------------------------------------------------------
@@ -1110,6 +1192,40 @@ class SettingsOverlay(QWidget):
         self._key_f = _field("AIza…", echo=True,
                               value=cfg.get("gemini_api_key", ""))
         lay.addWidget(self._key_f)
+
+        # Detect Gemini models row
+        gm_row = QHBoxLayout(); gm_row.setSpacing(6)
+        self._gm_detect_btn = QPushButton("⟳  Detect Gemini Models")
+        self._gm_detect_btn.setFont(QFont("Courier New", 8))
+        self._gm_detect_btn.setFixedHeight(28)
+        self._gm_detect_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._gm_detect_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: #000d12; color: {C.ACC2};
+                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 0 10px;
+            }}
+            QPushButton:hover {{ border: 1px solid {C.ACC2}; }}
+        """)
+        self._gm_detect_btn.clicked.connect(self._detect_gemini_models)
+        self._gm_detect_lbl = QLabel("")
+        self._gm_detect_lbl.setFont(QFont("Courier New", 7))
+        self._gm_detect_lbl.setStyleSheet(f"color: #3a6070; background: transparent;")
+        gm_row.addWidget(self._gm_detect_btn)
+        gm_row.addWidget(self._gm_detect_lbl, stretch=1)
+        lay.addLayout(gm_row)
+        lay.addSpacing(4)
+
+        # ── Voice (Live) model ──
+        lay.addWidget(_sep())
+        lay.addSpacing(2)
+        lay.addWidget(_lbl("VOICE MODEL  (Gemini Live API — real-time audio)", 8, color=C.TEXT_DIM))
+        lay.addWidget(_lbl("Must support Live API  ·  type or detect above",
+                           7, color="#3a6070"))
+        self._live_model_f = _field(
+            _DEFAULT_LIVE_MODEL,
+            value=cfg.get("live_model", _DEFAULT_LIVE_MODEL),
+        )
+        lay.addWidget(self._live_model_f)
         lay.addSpacing(4)
 
         # ── Text model selector ──
@@ -1242,12 +1358,41 @@ class SettingsOverlay(QWidget):
     def _save(self):
         cfg = self._load_cfg()
         cfg["gemini_api_key"]    = self._key_f.text().strip()
+        cfg["live_model"]        = self._live_model_f.text().strip() or _DEFAULT_LIVE_MODEL
         cfg["ollama_base_url"]   = self._ollama_url_f.text().strip() or "http://localhost:11434"
         cfg["ollama_model"]      = self._ollama_mod_f.text().strip()
-        cfg["text_llm_provider"] = getattr(self, "_sel_model_key", "auto")
+        cfg["text_llm_provider"] = getattr(self, "_sel_model_key", "gemini-2.5-flash")
         self._save_cfg(cfg)
         self.saved.emit()
         self.hide()
+
+    def _detect_gemini_models(self):
+        key = self._key_f.text().strip()
+        if not key:
+            self._gm_detect_lbl.setText("Enter API key first.")
+            return
+        self._gm_detect_btn.setText("Detecting…")
+        self._gm_detect_btn.setEnabled(False)
+        QApplication.processEvents()
+
+        import threading
+        def _run():
+            live, text = _fetch_gemini_models(key)
+            def _apply():
+                self._gm_detect_btn.setText("⟳  Detect Gemini Models")
+                self._gm_detect_btn.setEnabled(True)
+                if live:
+                    self._live_model_f.setText(live[0])
+                    self._gm_detect_lbl.setText(
+                        "Live: " + "  ·  ".join(live[:3]) +
+                        ("  |  Text: " + ", ".join(text[:3]) if text else "")
+                    )
+                    self._gm_detect_lbl.setStyleSheet(f"color: {C.GREEN}; background: transparent;")
+                else:
+                    self._gm_detect_lbl.setText("No models found — check key")
+                    self._gm_detect_lbl.setStyleSheet(f"color: {C.ACC}; background: transparent;")
+            QTimer.singleShot(0, _apply)
+        threading.Thread(target=_run, daemon=True).start()
 
 
 class MainWindow(QMainWindow):
@@ -1753,7 +1898,7 @@ class MainWindow(QMainWindow):
         ov.show()
         self._overlay = ov
 
-    def _on_setup_done(self, key: str, os_name: str, ollama_url: str):
+    def _on_setup_done(self, key: str, os_name: str, ollama_url: str, live_model: str):
         os.makedirs(CONFIG_DIR, exist_ok=True)
         API_FILE.write_text(
             json.dumps({
@@ -1762,6 +1907,7 @@ class MainWindow(QMainWindow):
                 "ollama_base_url":   ollama_url or "http://localhost:11434",
                 "ollama_model":      "",
                 "text_llm_provider": "gemini-2.5-flash",
+                "live_model":        live_model or _DEFAULT_LIVE_MODEL,
             }, indent=4),
             encoding="utf-8",
         )
@@ -1770,7 +1916,7 @@ class MainWindow(QMainWindow):
             self._overlay.hide()
             self._overlay = None
         self._apply_state("LISTENING")
-        self._log.append_log(f"SYS: API key saved. OCTO connecting...")
+        self._log.append_log("SYS: API key saved. OCTO connecting...")
 
 class _RootShim:
     def __init__(self, app: QApplication):

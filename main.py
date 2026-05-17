@@ -42,7 +42,16 @@ def get_base_dir():
 BASE_DIR        = get_base_dir()
 API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 PROMPT_PATH     = BASE_DIR / "core" / "prompt.txt"
-LIVE_MODEL          = "models/gemini-3.1-flash-live-preview"
+_DEFAULT_LIVE_MODEL = "models/gemini-3.1-flash-live-preview"
+
+def _get_live_model() -> str:
+    try:
+        import json
+        cfg = json.loads(API_CONFIG_PATH.read_text(encoding="utf-8"))
+        m = cfg.get("live_model", "").strip()
+        return m if m else _DEFAULT_LIVE_MODEL
+    except Exception:
+        return _DEFAULT_LIVE_MODEL
 CHANNELS            = 1
 SEND_SAMPLE_RATE    = 16000
 RECEIVE_SAMPLE_RATE = 24000
@@ -845,7 +854,7 @@ class OctoLive:
                 config = self._build_config()
 
                 async with (
-                    client.aio.live.connect(model=LIVE_MODEL, config=config) as session,
+                    client.aio.live.connect(model=_get_live_model(), config=config) as session,
                     asyncio.TaskGroup() as tg,
                 ):
                     self.session        = session
