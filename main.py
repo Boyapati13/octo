@@ -42,7 +42,7 @@ def get_base_dir():
 BASE_DIR        = get_base_dir()
 API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 PROMPT_PATH     = BASE_DIR / "core" / "prompt.txt"
-LIVE_MODEL          = "models/gemini-2.5-flash-native-audio-preview-12-2025"
+LIVE_MODEL          = "models/gemini-3.1-flash-live-preview"
 CHANNELS            = 1
 SEND_SAMPLE_RATE    = 16000
 RECEIVE_SAMPLE_RATE = 24000
@@ -850,6 +850,12 @@ class OctoLive:
                     print("[OCTO] ✅ Connected.")
                     self.ui.set_state("LISTENING")
                     self.ui.write_log("SYS: OCTO online.")
+
+                    # Spoken greeting so user knows OCTO is ready
+                    await session.send_client_content(
+                        turns={"parts": [{"text": "Greet the user very briefly — one short sentence — and let them know you are ready."}]},
+                        turn_complete=True,
+                    )
 
                     tg.create_task(self._send_realtime())
                     tg.create_task(self._listen_audio())
