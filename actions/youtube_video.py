@@ -9,8 +9,17 @@ from pathlib import Path
 from datetime import datetime
 from urllib.parse import quote_plus
 
-import pyautogui
-import numpy as np
+try:
+    import pyautogui
+    _PYAUTOGUI = True
+except ImportError:
+    _PYAUTOGUI = False
+
+try:
+    import numpy as np
+    _NUMPY = True
+except ImportError:
+    _NUMPY = False
 
 try:
     import requests
@@ -50,7 +59,7 @@ _YT_VIDEO_FILTER = "EgIQAQ%3D%3D"
 
 def _get_api_key() -> str:
     with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+        return json.load(f).get("gemini_api_key", "")
 
 
 def _open_url(url: str) -> None:

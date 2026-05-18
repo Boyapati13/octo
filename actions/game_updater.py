@@ -494,8 +494,11 @@ def _search_steam_appid(game_name: str) -> tuple[str | None, str | None]:
             items = json.loads(resp.read().decode()).get("items", [])
         if items:
             best = items[0]
-            print(f"[GameUpdater] 🌐 Store API: {best['name']} ({best['id']})")
-            return str(best["id"]), best["name"]
+            name = best.get("name", "")
+            app_id = best.get("id")
+            if app_id and name:
+                print(f"[GameUpdater] 🌐 Store API: {name} ({app_id})")
+                return str(app_id), name
     except Exception as e:
         print(f"[GameUpdater] ⚠️ AppID arama başarısız: {e}")
 

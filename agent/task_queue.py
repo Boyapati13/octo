@@ -174,12 +174,17 @@ class TaskQueue:
     def _run_task(self, task: Task) -> None:
         print(f"[TaskQueue] ▶️ Running: [{task.task_id}] {task.goal[:60]}")
         try:
-            executor = self._get_executor()
-            result   = executor.execute(
-                goal        = task.goal,
-                speak       = task.speak,
-                cancel_flag = task.cancel_flag,
-            )
+            from agent.hermes_bridge import should_use_hermes, run_with_hermes
+            if should_use_hermes(task.goal):
+                print(f"[TaskQueue] ⚡ Routing to Hermes: {task.goal[:60]}")
+                result = run_with_hermes(task.goal, speak=task.speak)
+            else:
+                executor = self._get_executor()
+                result   = executor.execute(
+                    goal        = task.goal,
+                    speak       = task.speak,
+                    cancel_flag = task.cancel_flag,
+                )
 
             with self._lock:
                 if task.cancel_flag.is_set():

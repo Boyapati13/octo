@@ -44,7 +44,7 @@ _RIGHT_W = 340
 
 _OS = platform.system()  # "Windows" | "Darwin" | "Linux"
 
-_DEFAULT_LIVE_MODEL = "models/gemini-3.1-flash-live-preview"
+_DEFAULT_LIVE_MODEL = "models/gemini-2.5-flash-native-audio-latest"
 _DEFAULT_TEXT_MODEL = "gemini-2.5-flash"
 
 
@@ -876,7 +876,7 @@ class _DropCanvas(QWidget):
 
 
 class SetupOverlay(QWidget):
-    done = pyqtSignal(str, str, str, str)   # key, os_name, ollama_url, live_model
+    done = pyqtSignal(str, str)   # key, os_name
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -908,7 +908,7 @@ class SetupOverlay(QWidget):
             return w
 
         layout.addWidget(_lbl("◈  INITIALISATION REQUIRED", 13, True))
-        layout.addWidget(_lbl("Configure OCTO. before first boot.", 9, color=C.PRI_DIM))
+        layout.addWidget(_lbl("Configure OCTO before first boot.", 9, color=C.PRI_DIM))
         layout.addSpacing(6)
 
         sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
@@ -917,8 +917,6 @@ class SetupOverlay(QWidget):
 
         layout.addWidget(_lbl("GEMINI API KEY", 8, color=C.TEXT_DIM,
                                align=Qt.AlignmentFlag.AlignLeft))
-        layout.addWidget(_lbl("Required for voice · Text falls back to Ollama if omitted",
-                               7, color="#4a6a7a", align=Qt.AlignmentFlag.AlignLeft))
         self._key_input = QLineEdit()
         self._key_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._key_input.setPlaceholderText("AIza…")
@@ -932,64 +930,6 @@ class SetupOverlay(QWidget):
             QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
         """)
         layout.addWidget(self._key_input)
-
-        # Detect models row
-        detect_row = QHBoxLayout(); detect_row.setSpacing(6)
-        self._detect_btn = QPushButton("⟳  Detect Models")
-        self._detect_btn.setFont(QFont("Courier New", 8))
-        self._detect_btn.setFixedHeight(28)
-        self._detect_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._detect_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: #000d12; color: {C.ACC2};
-                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 0 10px;
-            }}
-            QPushButton:hover {{ border: 1px solid {C.ACC2}; }}
-        """)
-        self._detect_btn.clicked.connect(self._detect_models)
-        self._detect_lbl = QLabel("Enter key then click Detect →")
-        self._detect_lbl.setFont(QFont("Courier New", 7))
-        self._detect_lbl.setStyleSheet(f"color: #3a6070; background: transparent;")
-        detect_row.addWidget(self._detect_btn)
-        detect_row.addWidget(self._detect_lbl, stretch=1)
-        layout.addLayout(detect_row)
-        layout.addSpacing(6)
-
-        layout.addWidget(_lbl("VOICE MODEL  (Live API)", 8, color=C.TEXT_DIM,
-                               align=Qt.AlignmentFlag.AlignLeft))
-        self._live_model_input = QLineEdit(_DEFAULT_LIVE_MODEL)
-        self._live_model_input.setFont(QFont("Courier New", 9))
-        self._live_model_input.setFixedHeight(30)
-        self._live_model_input.setStyleSheet(f"""
-            QLineEdit {{
-                background: #000d12; color: {C.TEXT};
-                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 3px 8px;
-            }}
-            QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
-        """)
-        layout.addWidget(self._live_model_input)
-        layout.addSpacing(10)
-
-        sep3 = QFrame(); sep3.setFrameShape(QFrame.Shape.HLine)
-        sep3.setStyleSheet(f"color: {C.BORDER};"); layout.addWidget(sep3)
-        layout.addSpacing(4)
-
-        layout.addWidget(_lbl("OLLAMA URL  (optional — local AI backup)",
-                               8, color=C.TEXT_DIM, align=Qt.AlignmentFlag.AlignLeft))
-        layout.addWidget(_lbl("Auto-selects best installed model (Gemma, Llama, Mistral…)",
-                               7, color="#4a6a7a", align=Qt.AlignmentFlag.AlignLeft))
-        self._ollama_input = QLineEdit()
-        self._ollama_input.setPlaceholderText("http://localhost:11434")
-        self._ollama_input.setFont(QFont("Courier New", 10))
-        self._ollama_input.setFixedHeight(32)
-        self._ollama_input.setStyleSheet(f"""
-            QLineEdit {{
-                background: #000d12; color: {C.TEXT};
-                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 4px 8px;
-            }}
-            QLineEdit:focus {{ border: 1px solid {C.ACC2}; }}
-        """)
-        layout.addWidget(self._ollama_input)
         layout.addSpacing(12)
 
         sep2 = QFrame(); sep2.setFrameShape(QFrame.Shape.HLine)
@@ -1053,42 +993,15 @@ class SetupOverlay(QWidget):
                     QPushButton:hover {{ color: {C.TEXT}; border: 1px solid {C.BORDER_B}; }}
                 """)
 
-    def _detect_models(self):
+    def _submit(self):
         key = self._key_input.text().strip()
         if not key:
-            self._detect_lbl.setText("Enter your API key first.")
-            return
-        self._detect_btn.setText("Detecting…")
-        self._detect_btn.setEnabled(False)
-        QApplication.processEvents()
-
-        import threading
-        def _run():
-            live, text = _fetch_gemini_models(key)
-            def _apply():
-                self._detect_btn.setText("⟳  Detect Models")
-                self._detect_btn.setEnabled(True)
-                if live:
-                    self._live_model_input.setText(live[0])
-                    self._detect_lbl.setText("Live: " + "  ·  ".join(live[:4]))
-                    self._detect_lbl.setStyleSheet(f"color: {C.GREEN}; background: transparent;")
-                else:
-                    self._detect_lbl.setText("No live models found — check key")
-                    self._detect_lbl.setStyleSheet(f"color: {C.ACC}; background: transparent;")
-            QTimer.singleShot(0, _apply)
-        threading.Thread(target=_run, daemon=True).start()
-
-    def _submit(self):
-        key        = self._key_input.text().strip()
-        ollama_url = self._ollama_input.text().strip() or "http://localhost:11434"
-        live_model = self._live_model_input.text().strip() or _DEFAULT_LIVE_MODEL
-        if not key and ollama_url == "http://localhost:11434":
             self._key_input.setStyleSheet(
                 self._key_input.styleSheet() +
                 f" QLineEdit {{ border: 1px solid {C.RED}; }}"
             )
             return
-        self.done.emit(key, self._sel_os, ollama_url, live_model)
+        self.done.emit(key, self._sel_os)
 
 
 # ---------------------------------------------------------------------------
@@ -1155,18 +1068,34 @@ class SettingsOverlay(QWidget):
         except Exception:
             return []
 
+    @staticmethod
+    def _load_gw_cfg() -> dict:
+        from pathlib import Path as _P
+        p = _P(__file__).resolve().parent / "config" / "gateway.json"
+        try:
+            return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _save_gw_cfg(data: dict):
+        from pathlib import Path as _P
+        p = _P(__file__).resolve().parent / "config" / "gateway.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(data, indent=4), encoding="utf-8")
+
     # ── build ─────────────────────────────────────────────────────────────────
     def _build_ui(self):
-        cfg = self._cfg
+        cfg    = self._cfg
+        gw_cfg = self._load_gw_cfg()
 
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(28, 20, 28, 20)
-        lay.setSpacing(7)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(24, 16, 24, 16)
+        root.setSpacing(6)
 
         def _lbl(txt, size=9, bold=False, color=C.PRI,
                  align=Qt.AlignmentFlag.AlignLeft):
-            w = QLabel(txt)
-            w.setAlignment(align)
+            w = QLabel(txt); w.setAlignment(align)
             w.setFont(QFont("Courier New", size,
                             QFont.Weight.Bold if bold else QFont.Weight.Normal))
             w.setStyleSheet(f"color: {color}; background: transparent;")
@@ -1174,162 +1103,229 @@ class SettingsOverlay(QWidget):
 
         def _sep():
             s = QFrame(); s.setFrameShape(QFrame.Shape.HLine)
-            s.setStyleSheet(f"color: {C.BORDER};")
-            return s
+            s.setStyleSheet(f"color: {C.BORDER};"); return s
 
-        def _field(placeholder="", echo=False, value=""):
-            f = QLineEdit(value)
-            f.setPlaceholderText(placeholder)
-            f.setFont(QFont("Courier New", 10))
-            f.setFixedHeight(30)
-            if echo:
-                f.setEchoMode(QLineEdit.EchoMode.Password)
+        def _field(ph="", echo=False, val=""):
+            f = QLineEdit(val); f.setPlaceholderText(ph)
+            f.setFont(QFont("Courier New", 9)); f.setFixedHeight(28)
+            if echo: f.setEchoMode(QLineEdit.EchoMode.Password)
             f.setStyleSheet(f"""
-                QLineEdit {{
-                    background: #000d12; color: {C.TEXT};
-                    border: 1px solid {C.BORDER}; border-radius: 3px;
-                    padding: 3px 8px;
-                }}
-                QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
-            """)
+                QLineEdit {{background:#000d12;color:{C.TEXT};
+                    border:1px solid {C.BORDER};border-radius:3px;padding:2px 7px;}}
+                QLineEdit:focus {{border:1px solid {C.PRI};}}""")
             return f
 
-        # ── title ──
-        lay.addWidget(_lbl("⚙  OCTO SETTINGS", 13, True, C.PRI,
-                           Qt.AlignmentFlag.AlignCenter))
-        lay.addWidget(_sep())
-        lay.addSpacing(2)
+        _TAB_SS = f"""
+            QPushButton {{background:transparent;color:{C.TEXT_DIM};
+                border:1px solid {C.BORDER};border-radius:3px;
+                font-family:'Courier New';font-size:9px;font-weight:bold;padding:3px 10px;}}
+            QPushButton:checked {{background:{C.PRI_GHO};color:{C.PRI};border:1px solid {C.PRI};}}
+            QPushButton:hover:!checked {{color:{C.TEXT_MED};border:1px solid {C.BORDER_B};}}"""
 
-        # ── Gemini API key ──
-        lay.addWidget(_lbl("GEMINI API KEY", 8, color=C.TEXT_DIM))
-        self._key_f = _field("AIza…", echo=True,
-                              value=cfg.get("gemini_api_key", ""))
-        lay.addWidget(self._key_f)
+        # ── header + tabs ──
+        root.addWidget(_lbl("⚙  OCTO SETTINGS", 12, True, C.PRI,
+                            Qt.AlignmentFlag.AlignCenter))
 
-        # Detect Gemini models row
+        tab_row = QHBoxLayout(); tab_row.setSpacing(4)
+        self._stab_btns: dict[str, QPushButton] = {}
+        for name in ["AI", "GATEWAY"]:
+            b = QPushButton(name); b.setCheckable(True)
+            b.setChecked(name == "AI"); b.setStyleSheet(_TAB_SS)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.clicked.connect(lambda _, n=name: self._switch_stab(n))
+            tab_row.addWidget(b); self._stab_btns[name] = b
+        tab_row.addStretch()
+        root.addLayout(tab_row)
+        root.addWidget(_sep())
+
+        # ════════════════════════════════════════════
+        # AI TAB
+        # ════════════════════════════════════════════
+        self._ai_panel = QWidget(); self._ai_panel.setStyleSheet("background:transparent;")
+        ai = QVBoxLayout(self._ai_panel); ai.setContentsMargins(0,4,0,0); ai.setSpacing(5)
+
+        ai.addWidget(_lbl("GEMINI API KEY", 8, color=C.TEXT_DIM))
+        self._key_f = _field("AIza…", echo=True, val=cfg.get("gemini_api_key", ""))
+        ai.addWidget(self._key_f)
+
         gm_row = QHBoxLayout(); gm_row.setSpacing(6)
         self._gm_detect_btn = QPushButton("⟳  Detect Gemini Models")
-        self._gm_detect_btn.setFont(QFont("Courier New", 8))
-        self._gm_detect_btn.setFixedHeight(28)
+        self._gm_detect_btn.setFont(QFont("Courier New", 8)); self._gm_detect_btn.setFixedHeight(26)
         self._gm_detect_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._gm_detect_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: #000d12; color: {C.ACC2};
-                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 0 10px;
-            }}
-            QPushButton:hover {{ border: 1px solid {C.ACC2}; }}
-        """)
+        self._gm_detect_btn.setStyleSheet(f"""QPushButton{{background:#000d12;color:{C.ACC2};
+            border:1px solid {C.BORDER};border-radius:3px;padding:0 8px;}}
+            QPushButton:hover{{border:1px solid {C.ACC2};}}""")
         self._gm_detect_btn.clicked.connect(self._detect_gemini_models)
         self._gm_detect_lbl = QLabel("")
         self._gm_detect_lbl.setFont(QFont("Courier New", 7))
-        self._gm_detect_lbl.setStyleSheet(f"color: #3a6070; background: transparent;")
-        gm_row.addWidget(self._gm_detect_btn)
-        gm_row.addWidget(self._gm_detect_lbl, stretch=1)
-        lay.addLayout(gm_row)
-        lay.addSpacing(4)
+        self._gm_detect_lbl.setStyleSheet("color:#3a6070;background:transparent;")
+        gm_row.addWidget(self._gm_detect_btn); gm_row.addWidget(self._gm_detect_lbl, stretch=1)
+        ai.addLayout(gm_row)
 
-        # ── Voice (Live) model ──
-        lay.addWidget(_sep())
-        lay.addSpacing(2)
-        lay.addWidget(_lbl("VOICE MODEL  (Gemini Live API — real-time audio)", 8, color=C.TEXT_DIM))
-        lay.addWidget(_lbl("Must support Live API  ·  type or detect above",
-                           7, color="#3a6070"))
-        self._live_model_f = _field(
-            _DEFAULT_LIVE_MODEL,
-            value=cfg.get("live_model", _DEFAULT_LIVE_MODEL),
-        )
-        lay.addWidget(self._live_model_f)
-        lay.addSpacing(4)
+        ai.addWidget(_sep())
+        ai.addWidget(_lbl("VOICE MODEL  (Gemini Live — real-time audio)", 8, color=C.TEXT_DIM))
+        self._live_model_f = _field(_DEFAULT_LIVE_MODEL, val=cfg.get("live_model", _DEFAULT_LIVE_MODEL))
+        ai.addWidget(self._live_model_f)
 
-        # ── Text model selector ──
-        lay.addWidget(_sep())
-        lay.addSpacing(2)
-        lay.addWidget(_lbl("TEXT MODEL  (vision · summaries · code)", 8, color=C.TEXT_DIM))
-        lay.addWidget(_lbl("Voice always uses Gemini Live API regardless of this setting",
-                           7, color="#3a6070"))
-
-        btn_row = QHBoxLayout(); btn_row.setSpacing(5)
+        ai.addWidget(_sep())
+        ai.addWidget(_lbl("TEXT MODEL  (agents · chat · code · vision)", 8, color=C.TEXT_DIM))
+        btn_row = QHBoxLayout(); btn_row.setSpacing(4)
         self._model_btns: dict[str, QPushButton] = {}
         cur_model = cfg.get("text_llm_provider", "auto")
         for label, key in self._TEXT_MODELS:
-            b = QPushButton(label)
-            b.setFont(QFont("Courier New", 8))
-            b.setFixedHeight(28)
+            b = QPushButton(label); b.setFont(QFont("Courier New", 7)); b.setFixedHeight(26)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.clicked.connect(lambda _, k=key: self._sel_model(k))
-            btn_row.addWidget(b)
-            self._model_btns[key] = b
-        lay.addLayout(btn_row)
+            btn_row.addWidget(b); self._model_btns[key] = b
+        ai.addLayout(btn_row)
         self._sel_model(cur_model)
-        lay.addSpacing(4)
 
-        # ── Ollama ──
-        lay.addWidget(_sep())
-        lay.addSpacing(2)
-        lay.addWidget(_lbl("LOCAL AI — OLLAMA", 8, color=C.TEXT_DIM))
-
+        ai.addWidget(_sep())
+        ai.addWidget(_lbl("LOCAL AI — OLLAMA", 8, color=C.TEXT_DIM))
         url_row = QHBoxLayout(); url_row.setSpacing(6)
         self._ollama_url_f = _field("http://localhost:11434",
-                                    value=cfg.get("ollama_base_url", "http://localhost:11434"))
-        detect_btn = QPushButton("⟳  Detect Models")
-        detect_btn.setFont(QFont("Courier New", 8))
-        detect_btn.setFixedHeight(30)
-        detect_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        detect_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: #000d12; color: {C.ACC2};
-                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 0 8px;
-            }}
-            QPushButton:hover {{ border: 1px solid {C.ACC2}; }}
-        """)
-        detect_btn.clicked.connect(self._detect_models)
-        url_row.addWidget(self._ollama_url_f, stretch=3)
-        url_row.addWidget(detect_btn, stretch=1)
-        lay.addLayout(url_row)
-
-        lay.addWidget(_lbl("OLLAMA MODEL  (leave blank = auto-select best installed)",
-                           7, color="#3a6070"))
-        self._ollama_mod_f = _field("auto  (e.g. gemma3, llama3.2, mistral…)",
-                                    value=cfg.get("ollama_model", ""))
-        lay.addWidget(self._ollama_mod_f)
-
+                                    val=cfg.get("ollama_base_url", "http://localhost:11434"))
+        det = QPushButton("⟳ Detect"); det.setFont(QFont("Courier New", 8)); det.setFixedHeight(28)
+        det.setCursor(Qt.CursorShape.PointingHandCursor)
+        det.setStyleSheet(f"""QPushButton{{background:#000d12;color:{C.ACC2};
+            border:1px solid {C.BORDER};border-radius:3px;padding:0 6px;}}
+            QPushButton:hover{{border:1px solid {C.ACC2};}}""")
+        det.clicked.connect(self._detect_models)
+        url_row.addWidget(self._ollama_url_f, stretch=3); url_row.addWidget(det)
+        ai.addLayout(url_row)
+        self._ollama_mod_f = _field("auto  (e.g. gemma3, llama3.2…)", val=cfg.get("ollama_model",""))
+        ai.addWidget(self._ollama_mod_f)
         self._detected_lbl = _lbl("", 7, color=C.GREEN)
-        lay.addWidget(self._detected_lbl)
-        lay.addSpacing(4)
+        ai.addWidget(self._detected_lbl)
+        ai.addStretch()
+
+        # ════════════════════════════════════════════
+        # GATEWAY TAB
+        # ════════════════════════════════════════════
+        self._gw_panel = QWidget(); self._gw_panel.setStyleSheet("background:transparent;")
+        gw = QVBoxLayout(self._gw_panel); gw.setContentsMargins(0,4,0,0); gw.setSpacing(4)
+
+        scroll_w = QScrollArea(); scroll_w.setWidgetResizable(True)
+        scroll_w.setStyleSheet(f"QScrollArea{{background:transparent;border:none;}}")
+        inner = QWidget(); inner.setStyleSheet("background:transparent;")
+        inner_lay = QVBoxLayout(inner); inner_lay.setContentsMargins(0,0,6,0); inner_lay.setSpacing(4)
+
+        def _gw_section(title: str, color=C.ACC):
+            l = QLabel(f"◈  {title}")
+            l.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+            l.setStyleSheet(f"color:{color};background:transparent;")
+            return l
+
+        def _gw_field(ph="", val="", echo=False):
+            f = QLineEdit(val); f.setPlaceholderText(ph)
+            f.setFont(QFont("Courier New", 8)); f.setFixedHeight(26)
+            if echo: f.setEchoMode(QLineEdit.EchoMode.Password)
+            f.setStyleSheet(f"""QLineEdit{{background:#000d12;color:{C.TEXT};
+                border:1px solid {C.BORDER};border-radius:3px;padding:2px 6px;}}
+                QLineEdit:focus{{border:1px solid {C.PRI};}}""")
+            return f
+
+        self._gw_fields: dict = {}
+
+        def _platform_block(key: str, title: str, fields: list, hint: str = ""):
+            p = gw_cfg.get(key, {})
+            inner_lay.addWidget(_gw_section(title))
+            if hint:
+                h = QLabel(hint); h.setFont(QFont("Courier New", 7))
+                h.setStyleSheet(f"color:{C.TEXT_DIM};background:transparent;")
+                inner_lay.addWidget(h)
+            self._gw_fields[key] = {}
+            for fname, fph, fecho in fields:
+                row = QHBoxLayout(); row.setSpacing(4)
+                lbl = QLabel(fname); lbl.setFixedWidth(90)
+                lbl.setFont(QFont("Courier New", 7))
+                lbl.setStyleSheet(f"color:{C.TEXT_MED};background:transparent;")
+                row.addWidget(lbl)
+                f = _gw_field(fph, val=str(p.get(fname, "")), echo=fecho)
+                row.addWidget(f)
+                self._gw_fields[key][fname] = f
+                inner_lay.addLayout(row)
+            inner_lay.addSpacing(2)
+
+        _platform_block("telegram",  "TELEGRAM",
+            [("token","Bot token from @BotFather",True),
+             ("allowed_users","Your numeric user IDs  (comma-separated)",False)],
+            "Get token: Telegram → @BotFather → /newbot   |   Get ID: @userinfobot")
+
+        inner_lay.addWidget(_sep())
+        _platform_block("discord",   "DISCORD",
+            [("token","Bot token from discord.com/developers",True),
+             ("allowed_users","Your Discord user IDs  (comma-separated)",False)],
+            "Portal → New App → Bot → Reset Token  |  Enable Message Content Intent")
+
+        inner_lay.addWidget(_sep())
+        _platform_block("slack",     "SLACK",
+            [("token","Bot token  xoxb-…",True),
+             ("api_key","App-level token  xapp-…",True),
+             ("allowed_users","Slack member IDs  (comma-separated)",False)],
+            "api.slack.com/apps → OAuth & Permissions  |  Settings → Socket Mode → xapp token")
+
+        inner_lay.addWidget(_sep())
+        _platform_block("whatsapp",  "WHATSAPP",
+            [("allowed_users","Phone numbers  (no +, e.g. 15551234567)",False)],
+            "Run 'octo gateway pair whatsapp' to scan QR code from your phone")
+
+        inner_lay.addWidget(_sep())
+        _platform_block("signal",    "SIGNAL",
+            [("http_url","signal-cli daemon URL  (default http://127.0.0.1:8080)",False),
+             ("account","Your phone number  (+1234567890)",False),
+             ("allowed_users","Allowed numbers  (+1234567890,+0987654321)",False)],
+            "Needs signal-cli + Java 17  |  Run: signal-cli --account +YOURNUM daemon --http 127.0.0.1:8080")
+
+        inner_lay.addStretch()
+        scroll_w.setWidget(inner)
+        gw.addWidget(scroll_w, stretch=1)
+
+        gw_status_row = QHBoxLayout(); gw_status_row.setSpacing(6)
+        self._gw_status_lbl = QLabel("Gateway: not running")
+        self._gw_status_lbl.setFont(QFont("Courier New", 8))
+        self._gw_status_lbl.setStyleSheet(f"color:{C.TEXT_DIM};background:transparent;")
+        start_gw = QPushButton("▸  START GATEWAY")
+        start_gw.setFixedHeight(28); start_gw.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        start_gw.setCursor(Qt.CursorShape.PointingHandCursor)
+        start_gw.setStyleSheet(f"""QPushButton{{background:transparent;color:{C.GREEN};
+            border:1px solid {C.GREEN_D};border-radius:3px;}}
+            QPushButton:hover{{background:#001a0d;border:1px solid {C.GREEN};}}""")
+        start_gw.clicked.connect(self._start_gateway)
+        gw_status_row.addWidget(self._gw_status_lbl, stretch=1)
+        gw_status_row.addWidget(start_gw)
+        gw.addLayout(gw_status_row)
+
+        # ── stack both panels ──
+        root.addWidget(self._ai_panel,  stretch=1)
+        root.addWidget(self._gw_panel,  stretch=1)
+        self._gw_panel.hide()
 
         # ── Save / Close ──
-        lay.addWidget(_sep())
+        root.addWidget(_sep())
         btn_row2 = QHBoxLayout(); btn_row2.setSpacing(8)
-
         close_btn = QPushButton("✕  Close")
-        close_btn.setFont(QFont("Courier New", 9))
-        close_btn.setFixedHeight(34)
+        close_btn.setFont(QFont("Courier New", 9)); close_btn.setFixedHeight(32)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent; color: {C.TEXT_DIM};
-                border: 1px solid {C.BORDER}; border-radius: 3px;
-            }}
-            QPushButton:hover {{ color: {C.TEXT}; border: 1px solid {C.BORDER_B}; }}
-        """)
+        close_btn.setStyleSheet(f"""QPushButton{{background:transparent;color:{C.TEXT_DIM};
+            border:1px solid {C.BORDER};border-radius:3px;}}
+            QPushButton:hover{{color:{C.TEXT};border:1px solid {C.BORDER_B};}}""")
         close_btn.clicked.connect(self.hide)
-
         save_btn = QPushButton("▸  SAVE SETTINGS")
-        save_btn.setFont(QFont("Courier New", 10, QFont.Weight.Bold))
-        save_btn.setFixedHeight(34)
+        save_btn.setFont(QFont("Courier New", 10, QFont.Weight.Bold)); save_btn.setFixedHeight(32)
         save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        save_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent; color: {C.PRI};
-                border: 1px solid {C.PRI_DIM}; border-radius: 3px;
-            }}
-            QPushButton:hover {{ background: {C.PRI_GHO}; border: 1px solid {C.PRI}; }}
-        """)
+        save_btn.setStyleSheet(f"""QPushButton{{background:transparent;color:{C.PRI};
+            border:1px solid {C.PRI_DIM};border-radius:3px;}}
+            QPushButton:hover{{background:{C.PRI_GHO};border:1px solid {C.PRI};}}""")
         save_btn.clicked.connect(self._save)
+        btn_row2.addWidget(close_btn); btn_row2.addWidget(save_btn, stretch=1)
+        root.addLayout(btn_row2)
 
-        btn_row2.addWidget(close_btn)
-        btn_row2.addWidget(save_btn, stretch=1)
-        lay.addLayout(btn_row2)
+    def _switch_stab(self, name: str):
+        for n, b in self._stab_btns.items():
+            b.setChecked(n == name)
+        self._ai_panel.setVisible(name == "AI")
+        self._gw_panel.setVisible(name == "GATEWAY")
 
     # ── interactions ──────────────────────────────────────────────────────────
     def _sel_model(self, key: str):
@@ -1369,6 +1365,7 @@ class SettingsOverlay(QWidget):
             self._detected_lbl.setStyleSheet(f"color: {C.ACC}; background: transparent;")
 
     def _save(self):
+        # ── AI settings ──
         cfg = self._load_cfg()
         cfg["gemini_api_key"]    = self._key_f.text().strip()
         cfg["live_model"]        = self._live_model_f.text().strip() or _DEFAULT_LIVE_MODEL
@@ -1376,8 +1373,41 @@ class SettingsOverlay(QWidget):
         cfg["ollama_model"]      = self._ollama_mod_f.text().strip()
         cfg["text_llm_provider"] = getattr(self, "_sel_model_key", "gemini-2.5-flash")
         self._save_cfg(cfg)
+
+        # ── Gateway settings ──
+        gw: dict = {}
+        for platform, fields in getattr(self, "_gw_fields", {}).items():
+            vals = {fname: f.text().strip() for fname, f in fields.items() if f.text().strip()}
+            if vals:
+                vals["enabled"] = True
+                gw[platform] = vals
+        if gw:
+            self._save_gw_cfg(gw)
+            try:
+                from agent.hermes_bridge import write_gateway_config
+                write_gateway_config(gw)
+            except Exception as e:
+                print(f"[OCTO] ⚠️ Gateway config write: {e}")
+
         self.saved.emit()
         self.hide()
+
+    def _start_gateway(self):
+        import subprocess, sys
+        from pathlib import Path
+        # Save first
+        self._save()
+        hermes = Path(sys.executable).parent / "hermes.exe"
+        try:
+            subprocess.Popen(
+                [str(hermes), "gateway", "run", "--accept-hooks"],
+                creationflags=0x00000010,  # CREATE_NEW_CONSOLE
+            )
+            self._gw_status_lbl.setText("Gateway: starting…")
+            self._gw_status_lbl.setStyleSheet(f"color:{C.ACC2};background:transparent;")
+        except Exception as e:
+            self._gw_status_lbl.setText(f"Error: {e}")
+            self._gw_status_lbl.setStyleSheet(f"color:{C.RED};background:transparent;")
 
     def _detect_gemini_models(self):
         key = self._key_f.text().strip()
@@ -1408,9 +1438,246 @@ class SettingsOverlay(QWidget):
         threading.Thread(target=_run, daemon=True).start()
 
 
+# ── ChatWidget ────────────────────────────────────────────────────────────────
+class ChatWidget(QWidget):
+    """Persistent text chat panel backed by text_llm."""
+    _resp_sig = pyqtSignal(str)
+    _err_sig  = pyqtSignal(str)
+
+    def __init__(self, system: str = "", parent=None):
+        super().__init__(parent)
+        self._system  = system
+        self._history: list[dict] = []
+        self._waiting = False
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        self._display = QTextEdit()
+        self._display.setReadOnly(True)
+        self._display.setFont(QFont("Courier New", 8))
+        self._display.setStyleSheet(f"""
+            QTextEdit {{
+                background: {C.PANEL}; color: {C.TEXT};
+                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 6px;
+            }}
+        """)
+        lay.addWidget(self._display)
+
+        self._resp_sig.connect(self._on_response)
+        self._err_sig.connect(self._on_error)
+
+    def send(self, text: str):
+        if self._waiting:
+            return
+        self._waiting = True
+        import html as _h
+        self._append(f'<div style="color:{C.ACC2};margin:2px 0"><b>You:</b> {_h.escape(text)}</div>')
+        self._history.append({"role": "user", "content": text})
+        self._append(f'<div style="color:{C.TEXT_DIM};margin:2px 0"><i>OCTO: thinking…</i></div>')
+        threading.Thread(target=self._fetch, args=(text,), daemon=True).start()
+
+    def _fetch(self, text: str):
+        try:
+            from core import text_llm
+            ctx = "\n".join(
+                f"{'User' if m['role']=='user' else 'OCTO'}: {m['content']}"
+                for m in self._history[-10:]
+            )
+            sys_p = self._system + (f"\n\nConversation history:\n{ctx}" if len(self._history) > 1 else "")
+            response = text_llm.ask(text, system=sys_p)
+            self._history.append({"role": "assistant", "content": response})
+            self._resp_sig.emit(response)
+        except Exception as e:
+            self._err_sig.emit(str(e))
+
+    def _on_response(self, text: str):
+        self._waiting = False
+        self._remove_thinking()
+        self._append(
+            f'<div style="color:{C.PRI};margin:2px 0"><b>OCTO:</b> {self._fmt(text)}</div>'
+        )
+        self._scroll_bottom()
+
+    def _on_error(self, text: str):
+        self._waiting = False
+        self._remove_thinking()
+        import html as _h
+        self._append(f'<div style="color:{C.RED};margin:2px 0">ERR: {_h.escape(text)}</div>')
+
+    def _remove_thinking(self):
+        html = self._display.toHtml()
+        idx = html.rfind("thinking")
+        if idx != -1:
+            s = html.rfind("<div", 0, idx)
+            e = html.find("</div>", idx) + 6
+            if s != -1 and e > s:
+                self._display.setHtml(html[:s] + html[e:])
+
+    def _append(self, html: str):
+        cur = self._display.textCursor()
+        cur.movePosition(cur.MoveOperation.End)
+        self._display.setTextCursor(cur)
+        self._display.insertHtml(html + "<br>")
+
+    def _scroll_bottom(self):
+        self._display.verticalScrollBar().setValue(
+            self._display.verticalScrollBar().maximum()
+        )
+
+    @staticmethod
+    def _fmt(text: str) -> str:
+        import re, html as _h
+        text = _h.escape(text)
+        text = re.sub(
+            r'```(\w*)\n?(.*?)```',
+            r'<pre style="background:#001520;color:#00ff88;padding:4px;'
+            r'border-radius:3px;font-size:7pt;white-space:pre-wrap;">\2</pre>',
+            text, flags=re.DOTALL,
+        )
+        text = re.sub(
+            r'`([^`\n]+)`',
+            r'<code style="background:#001520;color:#00ff88;padding:1px 3px;">\1</code>',
+            text,
+        )
+        text = text.replace("\n", "<br>")
+        return text
+
+
+# ── ProjectWidget ─────────────────────────────────────────────────────────────
+class ProjectWidget(QWidget):
+    """Live agent_task queue viewer with auto-refresh."""
+
+    _STATUS_COLOR = {
+        "pending":   C.ACC2,
+        "running":   C.PRI,
+        "completed": C.GREEN,
+        "failed":    C.RED,
+        "cancelled": C.TEXT_DIM,
+    }
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(3)
+
+        hdr = QHBoxLayout()
+        ttl = QLabel("ACTIVE PROJECTS")
+        ttl.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        ttl.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
+        hdr.addWidget(ttl)
+        hdr.addStretch()
+        ref = QPushButton("↺")
+        ref.setFixedSize(20, 18)
+        ref.setFont(QFont("Courier New", 10))
+        ref.setCursor(Qt.CursorShape.PointingHandCursor)
+        ref.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {C.PRI_DIM};
+                border: 1px solid {C.BORDER}; border-radius: 2px;
+            }}
+            QPushButton:hover {{ color: {C.PRI}; border-color: {C.PRI}; }}
+        """)
+        ref.clicked.connect(self.refresh)
+        hdr.addWidget(ref)
+        lay.addLayout(hdr)
+
+        self._display = QTextEdit()
+        self._display.setReadOnly(True)
+        self._display.setFont(QFont("Courier New", 8))
+        self._display.setStyleSheet(f"""
+            QTextEdit {{
+                background: {C.PANEL}; color: {C.TEXT};
+                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 6px;
+            }}
+        """)
+        lay.addWidget(self._display)
+
+        self._tmr = QTimer(self)
+        self._tmr.timeout.connect(self.refresh)
+        self._tmr.start(2000)
+        self.refresh()
+
+    def refresh(self):
+        import html as _h
+        rows = []
+
+        # ── Agent tasks ──────────────────────────────────────────────────
+        try:
+            from agent.task_queue import get_queue
+            tasks = list(reversed(get_queue().get_all_statuses()))
+        except Exception:
+            tasks = []
+
+        if tasks:
+            rows.append(f'<div style="color:{C.PRI};margin:4px 0 2px 0;font-weight:bold;">◈ OCTO TASKS</div>')
+        for t in tasks:
+            col  = self._STATUS_COLOR.get(t["status"], C.WHITE)
+            goal = _h.escape(t["goal"][:50])
+            rows.append(
+                f'<div style="margin:2px 0;">'
+                f'<span style="color:{col};">[{t["status"].upper()[:4]}]</span> '
+                f'<span style="color:{C.TEXT_MED};">#{t["task_id"]}</span> '
+                f'<span style="color:{C.WHITE};">{goal}</span>'
+                f'</div>'
+            )
+
+        # ── Cron jobs ────────────────────────────────────────────────────
+        try:
+            from agent.hermes_bridge import list_cron_jobs
+            crons = list_cron_jobs()
+        except Exception:
+            crons = []
+
+        if crons:
+            rows.append(f'<div style="color:{C.PRI};margin:6px 0 2px 0;font-weight:bold;">⏰ OCTO SCHEDULER</div>')
+        for c in crons:
+            enabled = c.get("enabled", True)
+            col     = C.GREEN if enabled else C.TEXT_DIM
+            label   = _h.escape((c.get("label") or c.get("prompt", ""))[:48])
+            sched   = _h.escape(c.get("schedule", ""))
+            cid     = str(c.get("id", ""))[:8]
+            rows.append(
+                f'<div style="margin:2px 0;">'
+                f'<span style="color:{col};">{"✓" if enabled else "⏸"}</span> '
+                f'<span style="color:{C.ACC2};">{sched}</span> '
+                f'<span style="color:{C.WHITE};">{label}</span> '
+                f'<span style="color:{C.TEXT_DIM};">#{cid}</span>'
+                f'</div>'
+            )
+
+        # ── Skills ───────────────────────────────────────────────────────
+        try:
+            from agent.hermes_bridge import list_skills
+            skills = list_skills()
+        except Exception:
+            skills = []
+
+        if skills:
+            rows.append(f'<div style="color:{C.PRI};margin:6px 0 2px 0;font-weight:bold;">📚 OCTO CAPABILITIES</div>')
+            for s in skills[:8]:
+                name = _h.escape(str(s.get("name", s) if isinstance(s, dict) else s))
+                rows.append(f'<div style="margin:2px 0;color:{C.TEXT_MED};">• {name}</div>')
+
+        if not rows:
+            rows = [
+                f'<div style="color:{C.TEXT_DIM};">No projects yet.<br><br>'
+                f'<span style="color:{C.TEXT_MED};">Try saying:</span><br>'
+                f'"Research X and save to file" → agent task<br>'
+                f'"Every morning at 9am summarize the news" → cron job</div>'
+            ]
+
+        self._display.setHtml(
+            f'<div style="font-family:Courier New;font-size:8pt;">{"".join(rows)}</div>'
+        )
+
+
 class MainWindow(QMainWindow):
-    _log_sig   = pyqtSignal(str)
-    _state_sig = pyqtSignal(str)
+    _log_sig        = pyqtSignal(str)
+    _state_sig      = pyqtSignal(str)
+    _show_setup_sig = pyqtSignal()
 
     def __init__(self, face_path: str):
         super().__init__()
@@ -1444,9 +1711,36 @@ class MainWindow(QMainWindow):
         self._left_panel = self._build_left_panel()
         body.addWidget(self._left_panel, stretch=0)
 
+        # ── Center: stacked pages ──────────────────────────────────────────
+        from PyQt6.QtWidgets import QStackedWidget
+        self._center_stack = QStackedWidget()
+        self._center_stack.setStyleSheet(f"background: {C.BG};")
+
+        # Page 0 — HOME (HUD)
         self.hud = HudCanvas(face_path)
         self.hud.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        body.addWidget(self.hud, stretch=5)
+        self._center_stack.addWidget(self.hud)
+
+        # Pages 1-5 — feature pages (lazy imported)
+        self._pages: dict[str, QWidget] = {}
+        from ui_pages.memory_page    import MemoryPage
+        from ui_pages.scheduler_page import SchedulerPage
+        from ui_pages.gateway_page   import GatewayPage
+        from ui_pages.tools_page     import ToolsPage
+        from ui_pages.mcp_page       import McpPage
+        from ui_pages.skills_page    import SkillsPage
+
+        for name, cls in [("memory",    MemoryPage),
+                           ("skills",    SkillsPage),
+                           ("scheduler", SchedulerPage),
+                           ("gateway",   GatewayPage),
+                           ("tools",     ToolsPage),
+                           ("mcp",       McpPage)]:
+            p = cls()
+            self._pages[name] = p
+            self._center_stack.addWidget(p)
+
+        body.addWidget(self._center_stack, stretch=5)
 
         self._right_panel = self._build_right_panel()
         body.addWidget(self._right_panel, stretch=0)
@@ -1467,6 +1761,7 @@ class MainWindow(QMainWindow):
 
         self._log_sig.connect(self._log.append_log)
         self._state_sig.connect(self._apply_state)
+        self._show_setup_sig.connect(self._show_setup)
 
         self._overlay: SetupOverlay | None = None
         self._settings_overlay: SettingsOverlay | None = None
@@ -1492,7 +1787,7 @@ class MainWindow(QMainWindow):
         self._settings_overlay = SettingsOverlay(self.centralWidget())
         self._settings_overlay.saved.connect(self._on_settings_saved)
         cw = self.centralWidget()
-        ow, oh = 640, 500
+        ow, oh = 700, 580
         self._settings_overlay.setGeometry(
             (cw.width()  - ow) // 2,
             (cw.height() - oh) // 2,
@@ -1523,7 +1818,7 @@ class MainWindow(QMainWindow):
                 ow, oh,
             )
         if self._settings_overlay and self._settings_overlay.isVisible():
-            ow, oh = 640, 500
+            ow, oh = 700, 580
             self._settings_overlay.setGeometry(
                 (cw.width()  - ow) // 2,
                 (cw.height() - oh) // 2,
@@ -1645,14 +1940,73 @@ class MainWindow(QMainWindow):
         self._clock_lbl.setText(time.strftime("%H:%M:%S"))
         self._date_lbl.setText(time.strftime("%a %d %b %Y"))
 
+    def _navigate(self, page: str):
+        """Switch center to named page, or HOME (HUD) if page == 'home'."""
+        for name, btn in self._nav_btns.items():
+            btn.setChecked(name == page)
+        if page == "home":
+            self._center_stack.setCurrentIndex(0)
+        else:
+            page_order = ["memory", "skills", "scheduler", "gateway", "tools", "mcp"]
+            if page in page_order:
+                self._center_stack.setCurrentIndex(page_order.index(page) + 1)
+
     def _build_left_panel(self) -> QWidget:
         w = QWidget()
         w.setFixedWidth(_LEFT_W)
         w.setStyleSheet(f"background: {C.DARK}; border-right: 1px solid {C.BORDER};")
         lay = QVBoxLayout(w)
-        lay.setContentsMargins(8, 10, 8, 10)
-        lay.setSpacing(6)
+        lay.setContentsMargins(6, 8, 6, 8)
+        lay.setSpacing(3)
 
+        # ── Navigation ────────────────────────────────────────────────────────
+        nav_hdr = QLabel("◈ NAVIGATION")
+        nav_hdr.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        nav_hdr.setStyleSheet(f"color: {C.PRI}; background: transparent; "
+                              f"border-bottom: 1px solid {C.BORDER}; padding-bottom: 3px;")
+        lay.addWidget(nav_hdr)
+        lay.addSpacing(2)
+
+        _NAV_SS = f"""
+            QPushButton {{
+                background: transparent; color: {C.TEXT_DIM};
+                border: 1px solid {C.BORDER}; border-radius: 3px;
+                font-family: 'Courier New'; font-size: 8px; font-weight: bold;
+                padding: 3px 4px; text-align: left;
+            }}
+            QPushButton:checked {{
+                background: {C.PRI_GHO}; color: {C.PRI};
+                border: 1px solid {C.PRI};
+            }}
+            QPushButton:hover:!checked {{
+                color: {C.TEXT_MED}; border: 1px solid {C.BORDER_B};
+            }}
+        """
+
+        _NAV_ITEMS = [
+            ("home",      "🏠  HOME"),
+            ("memory",    "💾  MEMORY"),
+            ("skills",    "📚  CAPABILITIES"),
+            ("scheduler", "⏰  SCHEDULER"),
+            ("gateway",   "🌐  GATEWAY"),
+            ("tools",     "🔧  TOOLS"),
+            ("mcp",       "🔌  MCP"),
+        ]
+
+        self._nav_btns: dict[str, QPushButton] = {}
+        for key, label in _NAV_ITEMS:
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setChecked(key == "home")
+            btn.setFixedHeight(24)
+            btn.setStyleSheet(_NAV_SS)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda _, k=key: self._navigate(k))
+            lay.addWidget(btn)
+            self._nav_btns[key] = btn
+
+        # ── System Monitor ────────────────────────────────────────────────────
+        lay.addSpacing(6)
         hdr = QLabel("◈ SYS MONITOR")
         hdr.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
         hdr.setStyleSheet(f"color: {C.PRI}; background: transparent; "
@@ -1728,9 +2082,64 @@ class MainWindow(QMainWindow):
             l.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
             return l
 
-        lay.addWidget(_sec("ACTIVITY LOG"))
+        _TAB_SS = f"""
+            QPushButton {{
+                background: transparent; color: {C.TEXT_DIM};
+                border: 1px solid {C.BORDER}; border-radius: 3px;
+                font-family: 'Courier New'; font-size: 8px; font-weight: bold;
+                padding: 2px 4px;
+            }}
+            QPushButton:checked {{
+                background: {C.PRI_GHO}; color: {C.PRI};
+                border: 1px solid {C.PRI};
+            }}
+            QPushButton:hover:!checked {{
+                color: {C.TEXT_MED}; border: 1px solid {C.BORDER_B};
+            }}
+        """
+
+        self._active_tab = "LOG"
+        self._tab_btns: dict[str, QPushButton] = {}
+        tab_row = QHBoxLayout(); tab_row.setSpacing(3)
+        for name, tip in [("LOG", "Activity Log"), ("CHAT", "Text Chat"),
+                           ("CODE", "Code Assistant"), ("PROJ", "Project Tracker")]:
+            btn = QPushButton(name)
+            btn.setCheckable(True)
+            btn.setChecked(name == "LOG")
+            btn.setFixedHeight(22)
+            btn.setToolTip(tip)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(_TAB_SS)
+            btn.clicked.connect(lambda _, n=name: self._switch_tab(n))
+            tab_row.addWidget(btn)
+            self._tab_btns[name] = btn
+        lay.addLayout(tab_row)
+
+        # ── LOG panel ──
         self._log = LogWidget()
         lay.addWidget(self._log, stretch=1)
+
+        # ── CHAT panel ──
+        self._chat_widget = ChatWidget(
+            system="You are OCTO, an intelligent AI assistant. Be concise, helpful, and direct."
+        )
+        self._chat_widget.hide()
+        lay.addWidget(self._chat_widget, stretch=1)
+
+        # ── CODE panel ──
+        self._code_widget = ChatWidget(
+            system=(
+                "You are OCTO, an expert code assistant. Help write, review, explain, and debug code. "
+                "Always wrap code in triple backticks with the language name. Be concise."
+            )
+        )
+        self._code_widget.hide()
+        lay.addWidget(self._code_widget, stretch=1)
+
+        # ── PROJ panel ──
+        self._proj_widget = ProjectWidget()
+        self._proj_widget.hide()
+        lay.addWidget(self._proj_widget, stretch=1)
 
         sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet(f"color: {C.BORDER}; margin: 2px 0;")
@@ -1771,14 +2180,29 @@ class MainWindow(QMainWindow):
                 background: transparent; color: {C.TEXT_MED};
                 border: 1px solid {C.BORDER}; border-radius: 3px;
             }}
-            QPushButton:hover {{
-                color: {C.PRI}; border: 1px solid {C.BORDER_B};
-            }}
+            QPushButton:hover {{ color: {C.PRI}; border: 1px solid {C.BORDER_B}; }}
         """)
         fs_btn.clicked.connect(self._toggle_fullscreen)
         lay.addWidget(fs_btn)
 
         return w
+
+    def _switch_tab(self, name: str):
+        self._active_tab = name
+        for n, btn in self._tab_btns.items():
+            btn.setChecked(n == name)
+        self._log.setVisible(name == "LOG")
+        self._chat_widget.setVisible(name == "CHAT")
+        self._code_widget.setVisible(name == "CODE")
+        self._proj_widget.setVisible(name == "PROJ")
+        hints = {
+            "LOG":  "Type a command or question…",
+            "CHAT": "Chat with OCTO…",
+            "CODE": "Ask about code…",
+            "PROJ": "",
+        }
+        self._input.setPlaceholderText(hints.get(name, ""))
+        self._input.setEnabled(name != "PROJ")
 
     def _build_input_row(self) -> QHBoxLayout:
         row = QHBoxLayout(); row.setSpacing(5)
@@ -1880,9 +2304,15 @@ class MainWindow(QMainWindow):
         txt = self._input.text().strip()
         if not txt: return
         self._input.clear()
-        self._log.append_log(f"You: {txt}")
-        if self.on_text_command:
-            threading.Thread(target=self.on_text_command, args=(txt,), daemon=True).start()
+        tab = getattr(self, "_active_tab", "LOG")
+        if tab == "CHAT":
+            self._chat_widget.send(txt)
+        elif tab == "CODE":
+            self._code_widget.send(txt)
+        else:
+            self._log.append_log(f"You: {txt}")
+            if self.on_text_command:
+                threading.Thread(target=self.on_text_command, args=(txt,), daemon=True).start()
 
     def _apply_state(self, state: str):
         self.hud.state    = state
@@ -1901,7 +2331,7 @@ class MainWindow(QMainWindow):
     def _show_setup(self):
         ov = SetupOverlay(self.centralWidget())
         cw = self.centralWidget()
-        ow, oh = 480, 520
+        ow, oh = 480, 380
         ov.setGeometry(
             (cw.width()  - ow) // 2,
             (cw.height() - oh) // 2,
@@ -1911,16 +2341,16 @@ class MainWindow(QMainWindow):
         ov.show()
         self._overlay = ov
 
-    def _on_setup_done(self, key: str, os_name: str, ollama_url: str, live_model: str):
+    def _on_setup_done(self, key: str, os_name: str):
         os.makedirs(CONFIG_DIR, exist_ok=True)
         API_FILE.write_text(
             json.dumps({
                 "gemini_api_key":    key,
                 "os_system":         os_name,
-                "ollama_base_url":   ollama_url or "http://localhost:11434",
+                "ollama_base_url":   "http://localhost:11434",
                 "ollama_model":      "",
                 "text_llm_provider": "gemini-2.5-flash",
-                "live_model":        live_model or _DEFAULT_LIVE_MODEL,
+                "live_model":        _DEFAULT_LIVE_MODEL,
             }, indent=4),
             encoding="utf-8",
         )
@@ -1978,6 +2408,10 @@ class OctoUI:
     def wait_for_api_key(self):
         while not self._win._ready:
             time.sleep(0.1)
+
+    def show_setup(self):
+        self._win._ready = False
+        self._win._show_setup_sig.emit()
 
     def start_speaking(self):
         self.set_state("SPEAKING")

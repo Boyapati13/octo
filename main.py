@@ -6,6 +6,12 @@ import sys
 import traceback
 from pathlib import Path
 
+# Windows cp1252 terminals can't encode emoji — reconfigure stdout/stderr to UTF-8
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 import sounddevice as sd
 from google import genai
 from google.genai import types
@@ -42,7 +48,7 @@ def get_base_dir():
 BASE_DIR        = get_base_dir()
 API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 PROMPT_PATH     = BASE_DIR / "core" / "prompt.txt"
-_DEFAULT_LIVE_MODEL = "models/gemini-3.1-flash-live-preview"
+_DEFAULT_LIVE_MODEL = "models/gemini-2.5-flash-native-audio-latest"
 
 def _get_live_model() -> str:
     try:
@@ -59,7 +65,7 @@ CHUNK_SIZE          = 1024
 
 def _get_api_key() -> str:
     with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+        return json.load(f).get("gemini_api_key", "")
 
 
 def _load_system_prompt() -> str:
@@ -379,6 +385,23 @@ TOOL_DECLARATIONS = [
         }
     },
     {
+        "name": "schedule_task",
+        "description": (
+            "Schedule a recurring or one-time task using cron syntax. "
+            "Use when user says 'every day', 'every Monday', 'at 9am every morning', "
+            "'remind me weekly', 'schedule this to run nightly', etc."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "prompt":   {"type": "STRING", "description": "What OCTO should do when the job runs"},
+                "schedule": {"type": "STRING", "description": "When to run: cron expression (e.g. '0 9 * * *') or natural language ('every day at 9am')"},
+                "label":    {"type": "STRING", "description": "Short name for this job (optional)"},
+            },
+            "required": ["prompt", "schedule"]
+        }
+    },
+    {
         "name": "shutdown_octo",
         "description": (
             "Shuts down the assistant completely. "
@@ -492,14 +515,15 @@ TOOL_DECLARATIONS = [
 class OctoLive:
 
     def __init__(self, ui: OctoUI):
-        self.ui             = ui
-        self.session        = None
-        self.audio_in_queue = None
-        self.out_queue      = None
-        self._loop          = None
-        self._is_speaking   = False
-        self._speaking_lock = threading.Lock()
-        self.ui.on_text_command = self._on_text_command
+        self.ui                  = ui
+        self.session             = None
+        self.audio_in_queue      = None
+        self.out_queue           = None
+        self._loop               = None
+        self._is_speaking        = False
+        self._speaking_lock      = threading.Lock()
+        self._reconnect_attempt  = 0
+        self.ui.on_text_command  = self._on_text_command
         self._turn_done_event: asyncio.Event | None = None
 
     def _on_text_command(self, text: str):
@@ -682,6 +706,19 @@ class OctoLive:
                 r = await loop.run_in_executor(None, lambda: flight_finder(parameters=args, player=self.ui))
                 result = r or "Done."
 
+            elif name == "schedule_task":
+                from agent.hermes_bridge import create_cron_job, sync_memory_to_hermes
+                sync_memory_to_hermes()
+                job = await loop.run_in_executor(None, lambda: create_cron_job(
+                    prompt=args.get("prompt", ""),
+                    schedule=args.get("schedule", "0 9 * * *"),
+                    label=args.get("label", ""),
+                ))
+                if job:
+                    result = f"Scheduled: '{args.get('label') or args.get('prompt', '')[:40]}' — {args.get('schedule')}."
+                else:
+                    result = "Could not create schedule — check the cron expression, sir."
+
             elif name == "shutdown_octo":
                 self.ui.write_log("SYS: Shutdown requested.")
                 self.speak("Goodbye, sir.")
@@ -716,10 +753,36 @@ class OctoLive:
                 turn_complete=True,
             )
 
+    async def _wrap_task(self, coro):
+        """Run a coroutine and swallow/log exceptions so TaskGroup doesn't cancel everything."""
+        try:
+            await coro
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            print(f"[OCTO] ❌ Task failed (handled): {e}")
+            traceback.print_exc()
+            try:
+                self.ui.write_log(f"ERR: unhandled task error — {str(e)[:120]}")
+            except Exception:
+                pass
+
     async def _send_realtime(self):
         while True:
             msg = await self.out_queue.get()
-            await self.session.send_realtime_input(media=msg)
+            try:
+                await self.session.send_realtime_input(
+                    audio=types.Blob(
+                        data=msg["data"],
+                        mime_type=msg.get("mime_type", "audio/pcm"),
+                    )
+                )
+            except Exception as e:
+                print(f"[OCTO] ❌ Realtime send failed: {e}")
+                try:
+                    self.ui.write_log(f"ERR: realtime send failed — {str(e)[:120]}")
+                except Exception:
+                    pass
 
     async def _listen_audio(self):
         print("[OCTO] 🎤 Mic started")
@@ -842,13 +905,12 @@ class OctoLive:
             stream.close()
 
     async def run(self):
-        client = genai.Client(
-            api_key=_get_api_key(),
-            http_options={"api_version": "v1beta"}
-        )
-
         while True:
             try:
+                client = genai.Client(
+                    api_key=_get_api_key(),
+                    http_options={"api_version": "v1beta"}
+                )
                 print("[OCTO] 🔌 Connecting...")
                 self.ui.set_state("THINKING")
                 config = self._build_config()
@@ -864,22 +926,48 @@ class OctoLive:
                     self._turn_done_event = asyncio.Event()
 
                     print("[OCTO] ✅ Connected.")
+                    self._reconnect_attempt = 0
                     self.ui.set_state("LISTENING")
                     self.ui.write_log("SYS: OCTO online.")
 
-                    tg.create_task(self._send_realtime())
-                    tg.create_task(self._listen_audio())
-                    tg.create_task(self._receive_audio())
-                    tg.create_task(self._play_audio())
-                    tg.create_task(self._greet())
+                    tg.create_task(self._wrap_task(self._send_realtime()))
+                    tg.create_task(self._wrap_task(self._listen_audio()))
+                    tg.create_task(self._wrap_task(self._receive_audio()))
+                    tg.create_task(self._wrap_task(self._play_audio()))
+                    tg.create_task(self._wrap_task(self._greet()))
 
             except Exception as e:
-                print(f"[OCTO] ⚠️ {e}")
+                err = str(e)
+                err_low = err.lower()
+                invalid_key = any(k in err_low for k in (
+                    "leaked", "policy violation", "1008",
+                    "invalid api key", "api key not valid",
+                    "api_key_invalid", "use another api key",
+                ))
+                expired_key = any(k in err_low for k in (
+                    "1007", "expired", "api key expired", "key expired"
+                ))
+                if invalid_key:
+                    self.ui.write_log("ERR: API key rejected — enter a new key.")
+                    self.ui.show_setup()
+                    await asyncio.to_thread(self.ui.wait_for_api_key)
+                    continue
+                if expired_key:
+                    self.ui.write_log("ERR: API key expired — enter a renewed key.")
+                    self.ui.show_setup()
+                    await asyncio.to_thread(self.ui.wait_for_api_key)
+                    continue
+                print(f"[OCTO] ⚠️ {err}")
+                self.ui.write_log(f"ERR: {err[:120]}")
                 traceback.print_exc()
             self.set_speaking(False)
             self.ui.set_state("THINKING")
-            print("[OCTO] 🔄 Reconnecting in 3s...")
-            await asyncio.sleep(3)
+            self._reconnect_attempt += 1
+            delay = min(3.0 * (2 ** min(self._reconnect_attempt - 1, 5)), 60.0)
+            jitter = delay * 0.4 * __import__("random").random()
+            wait = delay + jitter
+            print(f"[OCTO] 🔄 Reconnecting in {wait:.1f}s (attempt {self._reconnect_attempt})...")
+            await asyncio.sleep(wait)
 
 def main():
     ui = OctoUI("face.png")

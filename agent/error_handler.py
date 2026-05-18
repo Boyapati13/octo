@@ -1,4 +1,4 @@
-﻿import json
+import json
 import re
 import sys
 from pathlib import Path
@@ -11,15 +11,14 @@ def get_base_dir() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-BASE_DIR        = get_base_dir()
-API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
+BASE_DIR = get_base_dir()
 
 
 class ErrorDecision(Enum):
-    RETRY       = "retry"      
-    SKIP        = "skip"       
-    REPLAN      = "replan"     
-    ABORT       = "abort"    
+    RETRY       = "retry"
+    SKIP        = "skip"
+    REPLAN      = "replan"
+    ABORT       = "abort"
 
 
 ERROR_ANALYST_PROMPT = """You are the error recovery module of OCTO AI assistant.
@@ -49,36 +48,13 @@ Return ONLY valid JSON:
 """
 
 
-def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
-
-
 def analyze_error(
     step: dict,
     error: str,
     attempt: int = 1,
     max_attempts: int = 2
 ) -> dict:
-    """
-    Analyzes a failed step and returns a recovery decision.
-
-    Args:
-        step         : The step dict that failed
-        error        : Error message/traceback
-        attempt      : Current attempt number
-        max_attempts : How many times we've already tried
-
-    Returns:
-        {
-            "decision": ErrorDecision,
-            "reason": str,
-            "fix_suggestion": str,
-            "max_retries": int,
-            "user_message": str
-        }
-    """
-    import google.generativeai as genai
+    from core import text_llm
 
     if attempt >= max_attempts:
         print(f"[ErrorHandler] ⚠️ Max attempts reached for step {step.get('step')} — forcing replan")
@@ -89,12 +65,6 @@ def analyze_error(
             "max_retries":   0,
             "user_message":  "Trying a different approach, sir."
         }
-
-    genai.configure(api_key=_get_api_key())
-    model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash-lite",
-        system_instruction=ERROR_ANALYST_PROMPT
-    )
 
     prompt = f"""Failed step:
 Tool: {step.get('tool')}
@@ -108,8 +78,7 @@ Error:
 Attempt number: {attempt}"""
 
     try:
-        response = model.generate_content(prompt)
-        text     = response.text.strip()
+        text = text_llm.ask(prompt, system=ERROR_ANALYST_PROMPT).strip()
         text     = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
 
         result = json.loads(text)
@@ -121,7 +90,6 @@ Attempt number: {attempt}"""
             "abort":  ErrorDecision.ABORT,
         }
         result["decision"] = decision_map.get(decision_str, ErrorDecision.REPLAN)
-
 
         if step.get("critical") and result["decision"] == ErrorDecision.SKIP:
             result["decision"]     = ErrorDecision.REPLAN
@@ -142,16 +110,7 @@ Attempt number: {attempt}"""
 
 
 def generate_fix(step: dict, error: str, fix_suggestion: str) -> dict:
-    """
-    When decision is REPLAN and a fix suggestion exists,
-    generates a replacement step using generated_code as fallback.
-
-    Returns a modified step dict.
-    """
-    import google.generativeai as genai
-
-    genai.configure(api_key=_get_api_key())
-    model = genai.GenerativeModel(model_name="gemini-2.0-flash")
+    from core import text_llm
 
     prompt = f"""A task step failed. Generate a replacement step.
 
@@ -167,8 +126,7 @@ Write a Python script that accomplishes the same goal differently.
 Return ONLY the Python code, no explanation."""
 
     try:
-        response = model.generate_content(prompt)
-        code = response.text.strip()
+        code = text_llm.ask(prompt).strip()
         code = re.sub(r"```(?:python)?", "", code).strip().rstrip("`").strip()
 
         return {

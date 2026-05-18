@@ -18,16 +18,11 @@ def get_base_dir() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-BASE_DIR        = get_base_dir()
-API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
+BASE_DIR = get_base_dir()
 
-
-def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
 
 def _run_generated_code(description: str, speak: Callable | None = None) -> str:
-    import google.generativeai as genai
+    from core import text_llm
 
     if speak:
         speak("Writing custom code for this task, sir.")
@@ -46,28 +41,24 @@ def _run_generated_code(description: str, speak: Callable | None = None) -> str:
         except Exception:
             pass
 
-    genai.configure(api_key=_get_api_key())
-    model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash",
-        system_instruction=(
-            "You are an expert Python developer. "
-            "Write clean, complete, working Python code. "
-            "Use standard library + common packages. "
-            "Install missing packages with subprocess + pip if needed. "
-            "Return ONLY the Python code. No explanation, no markdown, no backticks.\n\n"
-            f"SYSTEM PATHS:\n"
-            f"  Desktop   = r'{desktop}'\n"
-            f"  Downloads = r'{downloads}'\n"
-            f"  Documents = r'{documents}'\n"
-            f"  Home      = r'{home}'\n"
-        )
+    system = (
+        "You are an expert Python developer. "
+        "Write clean, complete, working Python code. "
+        "Use standard library + common packages. "
+        "Install missing packages with subprocess + pip if needed. "
+        "Return ONLY the Python code. No explanation, no markdown, no backticks.\n\n"
+        f"SYSTEM PATHS:\n"
+        f"  Desktop   = r'{desktop}'\n"
+        f"  Downloads = r'{downloads}'\n"
+        f"  Documents = r'{documents}'\n"
+        f"  Home      = r'{home}'\n"
     )
 
     try:
-        response = model.generate_content(
-            f"Write Python code to accomplish this task:\n\n{description}"
-        )
-        code = response.text.strip()
+        code = text_llm.ask(
+            f"Write Python code to accomplish this task:\n\n{description}",
+            system=system,
+        ).strip()
         code = re.sub(r"```(?:python)?", "", code).strip().rstrip("`").strip()
 
         with tempfile.NamedTemporaryFile(
@@ -127,17 +118,15 @@ def _inject_context(params: dict, tool: str, step_results: dict, goal: str = "")
                 print(f"[Executor] 💉 Injected + translated content")
 
     return params
+
 def _detect_language(text: str) -> str:
-    import google.generativeai as genai
-    genai.configure(api_key=_get_api_key())
-    model = genai.GenerativeModel("gemini-2.5-flash-lite")
+    from core import text_llm
     try:
-        response = model.generate_content(
+        return text_llm.ask(
             f"What language is this text written in? "
             f"Reply with ONLY the language name in English (e.g. Turkish, English, French).\n\n"
             f"Text: {text[:200]}"
-        )
-        return response.text.strip()
+        ).strip()
     except Exception:
         return "English"
 
@@ -146,25 +135,16 @@ def _translate_to_goal_language(content: str, goal: str) -> str:
     if not goal:
         return content
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=_get_api_key())
-        model = genai.GenerativeModel("gemini-2.5-flash")
-
+        from core import text_llm
         target_lang = _detect_language(goal)
         print(f"[Executor] 🌐 Translating to: {target_lang}")
-
-        prompt = (
-            f"You are a professional translator. "
+        translated = text_llm.ask(
             f"Translate the following text into {target_lang}.\n"
-            f"IMPORTANT:\n"
-            f"- Translate EVERYTHING, leave nothing in English\n"
-            f"- Keep all facts, numbers, and data intact\n"
-            f"- Keep the structure and formatting\n"
-            f"- Output ONLY the translated text, nothing else\n\n"
-            f"Text to translate:\n{content[:4000]}"
-        )
-        response = model.generate_content(prompt)
-        translated = response.text.strip()
+            f"IMPORTANT: Translate EVERYTHING. Keep facts, numbers, structure.\n"
+            f"Output ONLY the translated text.\n\n"
+            f"Text to translate:\n{content[:4000]}",
+            system="You are a professional translator.",
+        ).strip()
         print(f"[Executor] ✅ Translation done ({target_lang})")
         return translated
     except Exception as e:
@@ -246,6 +226,28 @@ def _call_tool(tool: str, parameters: dict, speak: Callable | None) -> str:
         print(f"[Executor] ⚠️ Unknown tool '{tool}' — falling back to generated_code")
         return _run_generated_code(f"Accomplish this task: {parameters}", speak=speak)
 
+_PARALLEL_SAFE = {"web_search", "weather_report", "youtube_video", "flight_finder"}
+MAX_ITERATIONS = 20
+
+
+def _run_parallel_batch(batch: list[dict], speak: Callable | None) -> dict:
+    """Run a batch of parallel-safe steps concurrently. Returns {step_num: result}."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    results = {}
+    with ThreadPoolExecutor(max_workers=min(len(batch), 4)) as pool:
+        futures = {
+            pool.submit(_call_tool, s["tool"], s.get("parameters", {}), speak): s
+            for s in batch
+        }
+        for future in as_completed(futures):
+            step = futures[future]
+            try:
+                results[step["step"]] = future.result()
+            except Exception as e:
+                results[step["step"]] = f"Error: {e}"
+    return results
+
+
 class AgentExecutor:
 
     MAX_REPLAN_ATTEMPTS = 2
@@ -260,7 +262,8 @@ class AgentExecutor:
 
         replan_attempts = 0
         completed_steps = []
-        step_results    = {} 
+        step_results    = {}
+        iteration_count = 0
         plan            = create_plan(goal)
 
         while True:
@@ -275,11 +278,41 @@ class AgentExecutor:
             failed_step  = None
             failed_error = ""
 
+            # ── Parallel batch: collect consecutive parallel-safe steps ──
+            i = 0
+            while i < len(steps):
+                if cancel_flag and cancel_flag.is_set():
+                    if speak: speak("Task cancelled, sir.")
+                    return "Task cancelled."
+
+                batch = []
+                while i < len(steps) and steps[i].get("tool") in _PARALLEL_SAFE:
+                    batch.append(steps[i]); i += 1
+
+                if len(batch) > 1:
+                    print(f"[Executor] ⚡ Running {len(batch)} steps in parallel")
+                    par_results = _run_parallel_batch(batch, speak)
+                    for s in batch:
+                        sn = s["step"]
+                        step_results[sn] = par_results.get(sn, "Done.")
+                        completed_steps.append(s)
+                        iteration_count += 1
+                    continue
+                elif batch:
+                    steps = [batch[0]] + steps[i:]
+                    i = 0
+
             for step in steps:
                 if cancel_flag and cancel_flag.is_set():
                     if speak: speak("Task cancelled, sir.")
                     return "Task cancelled."
 
+                if iteration_count >= MAX_ITERATIONS:
+                    msg = f"Iteration budget reached ({MAX_ITERATIONS} steps), sir."
+                    if speak: speak(msg)
+                    return msg
+
+                iteration_count += 1
                 step_num = step.get("step", "?")
                 tool     = step.get("tool", "generated_code")
                 desc     = step.get("description", "")
@@ -297,7 +330,7 @@ class AgentExecutor:
                         break
                     try:
                         result = _call_tool(tool, params, speak)
-                        step_results[step_num] = result 
+                        step_results[step_num] = result
                         completed_steps.append(step)
                         print(f"[Executor] ✅ Step {step_num} done: {str(result)[:100]}")
                         step_ok = True
@@ -330,7 +363,7 @@ class AgentExecutor:
                             if speak: speak(msg)
                             return msg
 
-                        else: 
+                        else:
                             fix_suggestion = recovery.get("fix_suggestion", "")
                             if fix_suggestion and tool != "generated_code":
                                 try:
@@ -377,18 +410,13 @@ class AgentExecutor:
     def _summarize(self, goal: str, completed_steps: list, speak: Callable | None) -> str:
         fallback = f"All done, sir. Completed {len(completed_steps)} steps for: {goal[:60]}."
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=_get_api_key())
-            model     = genai.GenerativeModel(model_name="gemini-2.5-flash-lite")
+            from core import text_llm
             steps_str = "\n".join(f"- {s.get('description', '')}" for s in completed_steps)
-            prompt    = (
-                f'User goal: "{goal}"\n'
-                f"Completed steps:\n{steps_str}\n\n"
+            summary   = text_llm.ask(
+                f'User goal: "{goal}"\nCompleted steps:\n{steps_str}\n\n'
                 "Write a single natural sentence summarizing what was accomplished. "
                 "Address the user as 'sir'. Be direct and positive."
-            )
-            response = model.generate_content(prompt)
-            summary  = response.text.strip()
+            ).strip()
             if speak: speak(summary)
             return summary
         except Exception:

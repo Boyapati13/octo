@@ -206,7 +206,7 @@ def _process_pdf(path: Path, action: str, params: dict, speak=None) -> str:
                 with open(path, "rb") as f:
                     reader = PyPDF2.PdfReader(f)
                     for page in reader.pages:
-                        text += page.extract_text() + "\n"
+                        text += (page.extract_text() or "") + "\n"
             except ImportError:
                 return ""
         return text[:max_chars]
@@ -313,9 +313,8 @@ def _process_text_doc(path: Path, file_type: str, action: str,
     }
 
     if action not in prompt_map:
-
-        action  = "custom"
         instruction = action
+        action = "custom"
 
     try:
         model    = _gemini_client()
