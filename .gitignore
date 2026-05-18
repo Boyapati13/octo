@@ -15,3 +15,5 @@ deer-flow/
 
 # OCTO-Pro
 readme_original.md
+__pycache__/
+*.pyc
