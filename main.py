@@ -819,7 +819,7 @@ class OctoLive:
                 )
                 result = r or "Task complete."
 
-                        else:
+            else:
                 result = f"Unknown tool: {name}"
 
         except Exception as e:
