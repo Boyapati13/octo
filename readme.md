@@ -1,167 +1,190 @@
-# OCTO — Personal AI Assistant
+# OCTO-Pro — Personal AI × DeerFlow Super-Agent
 
-A real-time voice AI that hears, sees, and controls your computer.  
-Built on Gemini Live API with a local Ollama fallback for text tasks.
+> **OCTO's voice, DeerFlow's brain.**
+> Real-time voice control of your computer, supercharged with long-horizon AI agents,
+> 20+ skill modules, sub-agent orchestration, and persistent cross-session memory.
 
 ---
 
-## Features
+## What's New in OCTO-Pro
 
-| Capability | Description |
-|---|---|
-| Real-time Voice | Live two-way audio — speak and OCTO responds instantly |
-| Screen & Camera Vision | Analyzes your screen or webcam on demand |
-| System Control | Launch apps, manage files, adjust volume, control windows |
-| Browser Automation | Navigate, click, fill forms, screenshot any browser |
-| File Processing | Summarize PDFs, analyze images, edit code, process CSVs |
-| YouTube | Play videos, summarize transcripts, browse trending |
-| Flight Search | Find and compare flights via Google Flights |
-| Game Updater | Update Steam and Epic Games on a schedule |
-| Reminders | Set timed reminders via Windows Task Scheduler |
-| Persistent Memory | Remembers your name, preferences, projects across sessions |
-| Autonomous Tasks | Multi-step goal execution with planning |
-| Dev Agent | Builds complete multi-file projects from scratch |
-| Text Input | Type commands when voice is not available |
-| File Upload | Drop any file onto the interface for analysis |
+| Feature | OCTO (original) | OCTO-Pro |
+|---|---|---|
+| Voice interface | Gemini Live | Gemini Live (unchanged) |
+| Computer control | Yes | Yes |
+| Browser automation | Yes | Yes |
+| Web search | Basic | + DeerFlow deep crawl |
+| Research | Single-pass | **Multi-agent deep research** |
+| Skills catalog | None | **20+ DeerFlow skills** |
+| /find-skill voice command | No | **Yes** |
+| Sub-agents | No | DeerFlow ultra mode |
+| Sandboxed code execution | No | DeerFlow sandbox |
+| Long-term memory | OCTO local | OCTO + DeerFlow synced |
+| MCP server tools | No | via DeerFlow |
+| Slides / reports | No | via ppt-generation skill |
+
+---
+
+## Architecture
+
+```
++-----------------------------------------------------------+
+|                    OCTO-Pro  (PyQt6)                      |
+|  +-------------+   +-------------------------------+      |
+|  |  Voice UI   |   |     Gemini Live API           |      |
+|  |  (mic/tts)  |<--|  real-time audio + tool calls |      |
+|  +------+------+   +-------------------------------+      |
+|         |                                                  |
+|  +------v--------------------------------------------------+
+|  |              Tool Dispatcher                            |
+|  |  open_app | browser_control | file_controller          |
+|  |  computer_settings | screen_process | ...              |
+|  |  +--------------------------------------------------+   |
+|  |  |        DeerFlow Bridge (NEW)                    |   |
+|  |  |  find_skill  *  list_skills                     |   |
+|  |  |  deep_research  *  deerflow_task                |   |
+|  |  +-------------------+------------------------------+   |
+|  +---------------------|---------------------------------+  |
++------------------------|----------------------------------+
+                         | HTTP / SSE  (localhost:2026)
++------------------------v----------------------------------+
+|                DeerFlow 2.0 Backend                       |
+|  +------------------------------------------------------+ |
+|  |  LangGraph Super-Agent Harness                       | |
+|  |  Lead Agent -> Sub-Agents (parallel)                 | |
+|  |  Skills: research, slides, code-docs, ...            | |
+|  |  Sandbox (Docker) * Memory * MCP servers             | |
+|  +------------------------------------------------------+ |
++-----------------------------------------------------------+
+```
+
+OCTO-Pro always works standalone (DeerFlow is optional). When DeerFlow is running, it automatically routes capable tasks through it.
 
 ---
 
 ## Quick Start
 
+### 1. Clone & setup
+
 ```bash
-git clone https://github.com/Boyapati13/octo.git
-cd octo
+git clone https://github.com/Boyapati13/octo.git octo-pro
+cd octo-pro
 pip install -r requirements.txt
 playwright install chromium
-python main.py
+
+# Setup DeerFlow integration (interactive wizard)
+python setup_deerflow.py
 ```
 
-On first launch a setup screen appears — paste your Gemini API key, click **Detect Models** to auto-fill the voice model, then **Initialise Systems**.
+### 2. Launch
+
+**Windows:**
+```
+start_octo_pro.bat
+```
+
+**macOS / Linux:**
+```bash
+./start_octo_pro.sh
+```
+
+This starts DeerFlow's backend (if configured) then OCTO-Pro's voice engine.
 
 ---
 
-## Requirements
+## New Voice Commands
 
-| Requirement | Details |
+### /find-skill - Discover capabilities
+
+| You say | OCTO does |
 |---|---|
-| OS | Windows 10/11, macOS, Linux |
-| Python | 3.11 or 3.12 (3.12 recommended) |
-| Gemini API key | Free key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
-| Microphone | Required for voice input |
-| Ollama (optional) | Local AI backup — [ollama.com](https://ollama.com) |
+| "Find a skill for data analysis" | Searches skill catalog, reports matches |
+| "Is there a skill for making slides?" | Finds ppt-generation skill |
+| "What skills do you have?" | Lists all 20+ skills |
+| "Find a skill for academic research" | Finds systematic-literature-review skill |
+
+### Deep Research
+
+| You say | OCTO does |
+|---|---|
+| "Research quantum computing in depth" | DeerFlow multi-agent research -> saves report to Desktop |
+| "Give me a detailed report on gold market structure" | Full research with web crawl + synthesis |
+| "Summarize recent AI developments" | Deep research, summary format |
+
+### DeerFlow Tasks
+
+| You say | OCTO does |
+|---|---|
+| "Run a DeerFlow pro task: consulting report on EV market" | DeerFlow pro mode (planning + thinking) |
+| "Use ultra mode to build a data pipeline for CSV analysis" | DeerFlow ultra (full sub-agent orchestration) |
+| "Flash-mode: what is the current price of gold?" | Fast single-agent reply |
 
 ---
 
-## Model Architecture
+## DeerFlow Skill Catalog
 
-| Role | Model | Notes |
+| Skill | Description |
+|---|---|
+| deep-research | Multi-source research with sub-agents |
+| data-analysis | Analyze datasets, generate charts |
+| ppt-generation | Create PowerPoint slide decks |
+| image-generation | AI image generation workflows |
+| video-generation | Video creation workflows |
+| chart-visualization | Data visualization and charts |
+| newsletter-generation | Newsletter drafting and formatting |
+| podcast-generation | Podcast script + production |
+| code-documentation | Auto-generate code docs |
+| consulting-analysis | Business consulting reports |
+| academic-paper-review | Systematic literature review |
+| web-design-guidelines | Web UX/UI best practices |
+| github-deep-research | Deep dive into GitHub repos |
+| find-skills | Discover more skills at skills.sh |
+
+---
+
+## DeerFlow Modes
+
+| Mode | Speed | Use When |
 |---|---|---|
-| Voice (Live API) | `gemini-3.1-flash-live-preview` | Real-time audio — configurable |
-| Text / Vision | `gemini-2.5-flash` | Free-tier quota — configurable |
-| Local fallback | Auto-detected via `ollama list` | Prefers `gemma4`, then `llama3`, `mistral` |
-
-Voice always uses the Gemini Live API regardless of text model setting.  
-If Gemini text calls fail, OCTO falls back to your locally installed Ollama model automatically.
+| flash | ~5s | Quick factual questions |
+| standard | ~15-30s | General tasks, drafting |
+| pro | ~30-60s | Reports, planning, analysis |
+| ultra | 1-5 min | Complex research, multi-output |
 
 ---
 
-## Configuration
+## Fallback Behaviour
 
-### First launch
-The setup screen appears automatically when no valid API key is found.
-
-1. Enter your **Gemini API key**
-2. Click **⟳ Detect Models** — fetches available models for your key
-3. The **Voice Model** field is filled automatically (edit if needed)
-4. Set **Ollama URL** if you want local fallback (`http://localhost:11434`)
-5. Click **▸ Initialise Systems**
-
-### Changing settings later
-Click the **⚙** button in the top-left header at any time.
-
-- Update API key
-- Switch voice model (type or detect)
-- Choose text model: `gemini-2.5-flash` / `gemini-3.1-pro-preview` / Ollama only
-- Set Ollama URL and click **⟳ Detect Models** to see your local models
+OCTO-Pro always works without DeerFlow running:
+- find_skill searches the local bundled catalog
+- deep_research falls back to native web_search  
+- deerflow_task falls back to native agent_task
+- All original OCTO tools are unchanged
 
 ---
 
-## Ollama Local Backup
-
-If you have [Ollama](https://ollama.com) installed with local models, OCTO uses them automatically when Gemini text calls are unavailable or rate-limited.
-
-Check your installed models:
-```bash
-ollama list
-```
-
-OCTO selects the best available model in this priority order:  
-`gemma4` → `gemma3` → `llama3.x` → `qwen2.5` → `mistral` → first available
-
-Cloud-proxied Ollama models (tagged `:cloud`) are skipped for the local fallback.
-
-To pull a recommended model:
-```bash
-ollama pull gemma3
-```
-
----
-
-## Auto-launch on Windows
-
-A startup shortcut is created automatically at:
-```
-%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\OCTO.lnk
-```
-
-OCTO will start silently when you log in. To disable, delete that shortcut.
-
----
-
-## Keyboard Shortcuts
-
-| Key | Action |
-|---|---|
-| `F4` | Toggle microphone mute |
-| `F11` | Toggle fullscreen |
-| Enter (text field) | Send text command |
-
----
-
-## Security
-
-- `config/api_keys.json` is **gitignored** and never committed
-- Never share or publish your API key
-- Generate a new key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) if leaked
-
----
-
-## Project Structure
+## New Files Added
 
 ```
-octo/
-├── main.py                 # Voice engine (Gemini Live API)
-├── ui.py                   # PyQt6 interface + setup/settings overlays
-├── core/
-│   ├── text_llm.py         # Gemini text → Ollama fallback router
-│   └── prompt.txt          # System prompt
-├── actions/                # Tool implementations
-│   ├── browser_control.py
-│   ├── screen_processor.py
-│   ├── file_processor.py
-│   ├── computer_control.py
-│   └── ...
-├── agent/                  # Planner + executor for multi-step tasks
-├── memory/                 # Persistent memory manager
-├── config/
-│   └── api_keys.json       # Local only — gitignored
-├── requirements.txt
-└── octo.bat                # Windows launcher
+octo-pro/
++-- deerflow_bridge.py         NEW: HTTP client for DeerFlow API
++-- setup_deerflow.py          NEW: Integration setup wizard
++-- start_octo_pro.bat         NEW: Windows unified launcher
++-- start_octo_pro.sh          NEW: macOS/Linux unified launcher
++-- actions/
+|   +-- deep_research.py       NEW: DeerFlow deep research action
+|   +-- deerflow_task.py       NEW: DeerFlow general task action
++-- skills/
+|   +-- skill_manager.py       NEW: /find-skill engine
++-- core/
+|   +-- prompt.txt             UPGRADED: DeerFlow-aware routing rules
++-- readme.md                  UPGRADED: this file
++-- requirements.txt           UPGRADED: +httpx, +sseclient-py
 ```
 
 ---
 
 ## License
 
-Personal and non-commercial use only.  
-Licensed under [Creative Commons BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/).
+OCTO-Pro: Creative Commons BY-NC 4.0  
+DeerFlow: MIT License (bytedance/deer-flow)

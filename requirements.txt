@@ -22,3 +22,7 @@ youtube-transcript-api
 pywinauto
 python-pptx
 pyqt6
+
+# ── DeerFlow bridge (added by OCTO-Pro upgrade) ──
+httpx>=0.27.0
+sseclient-py>=1.8.0

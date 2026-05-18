@@ -7,3 +7,11 @@ __pycache__/
 .env
 *.log
 memory/octo_memory.json
+
+# DeerFlow integration
+deer-flow/
+.deerflow.pid
+/tmp/deerflow.log
+
+# OCTO-Pro
+readme_original.md

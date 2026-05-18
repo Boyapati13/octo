@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import re
 import threading
 import json
@@ -37,6 +37,8 @@ from actions.dev_agent         import dev_agent
 from actions.web_search        import web_search as web_search_action
 from actions.computer_control  import computer_control
 from actions.game_updater      import game_updater
+from actions.deep_research     import deep_research as deep_research_action
+from actions.deerflow_task     import deerflow_task as deerflow_task_action
 
 
 def get_base_dir():
@@ -481,6 +483,69 @@ TOOL_DECLARATIONS = [
     }
 },
     {
+        "name": "find_skill",
+        "description": (
+            "Searches the DeerFlow skill catalog for a skill matching the user's request. "
+            "Use when user says 'find a skill for X', 'is there a skill that can X', "
+            "'what skills do you have for X', or '/find-skill X'. "
+            "Reports results by name and description."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "query": {"type": "STRING", "description": "Keyword(s) describing the desired skill"},
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "list_skills",
+        "description": "Lists all available DeerFlow skills. Use when user asks 'what skills do you have' or 'show all skills'.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {},
+        }
+    },
+    {
+        "name": "deep_research",
+        "description": (
+            "Performs long-horizon, multi-source deep research on any topic via DeerFlow sub-agents. "
+            "Use for: comprehensive reports, multi-angle analysis, academic-style research, "
+            "anything that takes 'minutes to hours'. "
+            "Returns a full research report and optionally saves it to the Desktop."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "topic":       {"type": "STRING",  "description": "The research topic or question"},
+                "report_type": {"type": "STRING",  "description": "detailed (default) | summary | bullets"},
+                "save":        {"type": "BOOLEAN", "description": "Save report to Desktop (default: true)"},
+                "model":       {"type": "STRING",  "description": "Override DeerFlow model (optional)"},
+            },
+            "required": ["topic"]
+        }
+    },
+    {
+        "name": "deerflow_task",
+        "description": (
+            "Submits any complex task to DeerFlow's LangGraph super-agent harness. "
+            "Supports sub-agents, sandboxed code execution, and skill-augmented reasoning. "
+            "Use for: data pipelines, slide deck creation, code projects, content workflows, "
+            "anything that requires multiple AI agents working in parallel. "
+            "Modes: flash (fast) | standard | pro (planning) | ultra (sub-agents)."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "goal":  {"type": "STRING", "description": "Full description of what to accomplish"},
+                "mode":  {"type": "STRING", "description": "flash | standard | pro | ultra (default: standard)"},
+                "save":  {"type": "BOOLEAN", "description": "Save result to Desktop (default: false)"},
+                "model": {"type": "STRING",  "description": "Override DeerFlow model (optional)"},
+            },
+            "required": ["goal"]
+        }
+    },
+    {
         "name": "save_memory",
         "description": (
             "Save an important personal fact about the user to long-term memory. "
@@ -728,7 +793,33 @@ class OctoLive:
                     os._exit(0)
                 threading.Thread(target=_shutdown, daemon=True).start()
 
-            else:
+            elif name == "find_skill":
+                from skills.skill_manager import find_skill
+                res = find_skill(query=args.get("query", ""))
+                self.ui.write_log(res["log_detail"])
+                result = res["voice_summary"]
+
+            elif name == "list_skills":
+                from skills.skill_manager import list_all_skills
+                res = list_all_skills()
+                self.ui.write_log(res["log_detail"])
+                result = res["voice_summary"]
+
+            elif name == "deep_research":
+                r = await loop.run_in_executor(
+                    None,
+                    lambda: deep_research_action(parameters=args, player=self.ui, speak=self.speak)
+                )
+                result = r or "Research complete."
+
+            elif name == "deerflow_task":
+                r = await loop.run_in_executor(
+                    None,
+                    lambda: deerflow_task_action(parameters=args, player=self.ui, speak=self.speak)
+                )
+                result = r or "Task complete."
+
+                        else:
                 result = f"Unknown tool: {name}"
 
         except Exception as e:
