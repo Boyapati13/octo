@@ -793,8 +793,18 @@ class OctoLive:
                 OCTO_speaking = self._is_speaking
             if not OCTO_speaking and not self.ui.muted:
                 data = indata.tobytes()
+                # Use a safe put function scheduled on the event loop so a
+                # full queue does not raise an unhandled exception in the
+                # callback thread. Drop frames when the queue is full.
+                def _safe_put(item):
+                    try:
+                        self.out_queue.put_nowait(item)
+                    except asyncio.QueueFull:
+                        # drop audio frame when consumer is lagging
+                        return
+
                 loop.call_soon_threadsafe(
-                    self.out_queue.put_nowait,
+                    _safe_put,
                     {"data": data, "mime_type": "audio/pcm"}
                 )
 
@@ -930,14 +940,20 @@ class OctoLive:
                     self.ui.set_state("LISTENING")
                     self.ui.write_log("SYS: OCTO online.")
 
-                    tg.create_task(self._wrap_task(self._send_realtime()))
-                    tg.create_task(self._wrap_task(self._listen_audio()))
-                    tg.create_task(self._wrap_task(self._receive_audio()))
-                    tg.create_task(self._wrap_task(self._play_audio()))
+                    # Critical tasks: failures propagate to TaskGroup → triggers reconnect.
+                    tg.create_task(self._send_realtime())
+                    tg.create_task(self._listen_audio())
+                    tg.create_task(self._receive_audio())
+                    tg.create_task(self._play_audio())
+                    # Non-critical: greeting failure should not kill the session.
                     tg.create_task(self._wrap_task(self._greet()))
 
             except Exception as e:
-                err = str(e)
+                # Unwrap ExceptionGroup from TaskGroup to get the real error.
+                inner = e
+                if isinstance(e, ExceptionGroup) and e.exceptions:
+                    inner = e.exceptions[0]
+                err = str(inner)
                 err_low = err.lower()
                 invalid_key = any(k in err_low for k in (
                     "leaked", "policy violation", "1008",
@@ -969,7 +985,31 @@ class OctoLive:
             print(f"[OCTO] 🔄 Reconnecting in {wait:.1f}s (attempt {self._reconnect_attempt})...")
             await asyncio.sleep(wait)
 
+def _auto_update():
+    """Pull latest code from git. If commits were added, restart the process so the new code runs."""
+    import subprocess, os
+    try:
+        before = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=BASE_DIR, capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        subprocess.run(
+            ["git", "pull", "--ff-only"],
+            cwd=BASE_DIR, capture_output=True, timeout=15,
+        )
+        after = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=BASE_DIR, capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        if before and after and before != after:
+            print(f"[OCTO] Code updated ({before[:7]} → {after[:7]}) — restarting...")
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+    except Exception:
+        pass  # no git, no network, or merge conflict — just run current code
+
+
 def main():
+    _auto_update()
     ui = OctoUI("face.png")
 
     def runner():

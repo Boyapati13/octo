@@ -14,6 +14,12 @@ import os
 import threading
 from pathlib import Path
 
+# Windows cp1252 terminals can't print emoji/box-drawing chars — force UTF-8.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 BASE_DIR = Path(__file__).resolve().parent
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -189,8 +195,32 @@ def repl():
             except Exception as e:
                 print(RED(f"  Error: {e}"))
 
+# ── Auto-update ───────────────────────────────────────────────────────────────
+def _auto_update():
+    import subprocess
+    try:
+        before = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=BASE_DIR, capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        subprocess.run(
+            ["git", "pull", "--ff-only"],
+            cwd=BASE_DIR, capture_output=True, timeout=15,
+        )
+        after = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=BASE_DIR, capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        if before and after and before != after:
+            print(f"[OCTO] Code updated ({before[:7]} → {after[:7]}) — restarting...")
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+    except Exception:
+        pass
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    _auto_update()
     # Ensure OCTO package is on path
     sys.path.insert(0, str(BASE_DIR))
 
