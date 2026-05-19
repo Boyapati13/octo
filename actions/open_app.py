@@ -1,3 +1,4 @@
+import os
 import time
 import subprocess
 import platform
@@ -94,7 +95,10 @@ def _launch_windows(app_name: str) -> bool:
 
     if ":" in app_name:
         try:
-            subprocess.Popen(["cmd.exe", "/c", "start", "", app_name], shell=False)
+            if hasattr(os, "startfile"):
+                os.startfile(app_name)
+            else:
+                subprocess.Popen([app_name], shell=False)
             time.sleep(1.0)
             return True
         except Exception:
