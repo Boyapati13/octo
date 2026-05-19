@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import sys
 import os
-import threading
 from pathlib import Path
 
 # Windows cp1252 terminals can't print emoji/box-drawing chars — force UTF-8.
