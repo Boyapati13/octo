@@ -47,8 +47,9 @@ def _detect_ollama_model(base_url: str) -> str:
             r = requests.get(f"{base_url.rstrip('/')}/api/tags", timeout=5)
             r.raise_for_status()
             installed = [m["name"] for m in r.json().get("models", [])]
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.warning(f"Failed to fetch models from Ollama API: {e}")
 
     # Filter out cloud-proxied models
     local = [m for m in installed if not any(m.endswith(t) for t in _CLOUD_TAGS)]
