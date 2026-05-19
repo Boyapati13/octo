@@ -96,7 +96,13 @@ def ask(
 
     if provider != "ollama" and has_key:
         try:
-            return _gemini(prompt, system, image_bytes, mime_type, key, model=model)
+            return _gemini(
+                prompt,
+                system,
+                key,
+                image_data=(image_bytes, mime_type) if image_bytes else None,
+                model=model,
+            )
         except Exception as e:
             print(f"[TextLLM] Gemini failed ({e.__class__.__name__}: {e}) — trying Ollama")
 
@@ -106,9 +112,8 @@ def ask(
 def _gemini(
     prompt: str,
     system: str,
-    image_bytes: bytes | None,
-    mime_type: str,
     key: str,
+    image_data: tuple[bytes, str] | None = None,
     model: str = TEXT_MODEL,
 ) -> str:
     from google import genai
@@ -116,8 +121,8 @@ def _gemini(
 
     client = genai.Client(api_key=key)
     parts: list = []
-    if image_bytes:
-        parts.append(types.Part.from_bytes(data=image_bytes, mime_type=mime_type))
+    if image_data:
+        parts.append(types.Part.from_bytes(data=image_data[0], mime_type=image_data[1]))
     parts.append(types.Part.from_text(text=prompt))
 
     cfg = types.GenerateContentConfig(system_instruction=system) if system else None
