@@ -322,69 +322,14 @@ class AgentExecutor:
 
                 print(f"\n[Executor] ▶️ Step {step_num}: [{tool}] {desc}")
 
-                attempt = 1
-                step_ok = False
+                step_ok, failed_step, failed_error, abort_msg = self._execute_single_step(
+                    step, step_num, tool, params, speak, cancel_flag, step_results, completed_steps
+                )
 
-                while attempt <= 3:
-                    if cancel_flag and cancel_flag.is_set():
-                        break
-                    try:
-                        result = _call_tool(tool, params, speak)
-                        step_results[step_num] = result
-                        completed_steps.append(step)
-                        print(f"[Executor] ✅ Step {step_num} done: {str(result)[:100]}")
-                        step_ok = True
-                        break
-
-                    except Exception as e:
-                        error_msg = str(e)
-                        print(f"[Executor] ❌ Step {step_num} attempt {attempt} failed: {error_msg}")
-
-                        recovery = analyze_error(step, error_msg, attempt=attempt)
-                        decision = recovery["decision"]
-                        user_msg = recovery.get("user_message", "")
-
-                        if speak and user_msg:
-                            speak(user_msg)
-
-                        if decision == ErrorDecision.RETRY:
-                            attempt += 1
-                            import time; time.sleep(2)
-                            continue
-
-                        elif decision == ErrorDecision.SKIP:
-                            print(f"[Executor] ⏭️ Skipping step {step_num}")
-                            completed_steps.append(step)
-                            step_ok = True
-                            break
-
-                        elif decision == ErrorDecision.ABORT:
-                            msg = f"Task aborted, sir. {recovery.get('reason', '')}"
-                            if speak: speak(msg)
-                            return msg
-
-                        else:
-                            fix_suggestion = recovery.get("fix_suggestion", "")
-                            if fix_suggestion and tool != "generated_code":
-                                try:
-                                    fixed_step = generate_fix(step, error_msg, fix_suggestion)
-                                    if speak: speak("Trying an alternative approach, sir.")
-                                    res = _call_tool(
-                                        fixed_step["tool"],
-                                        fixed_step["parameters"],
-                                        speak
-                                    )
-                                    step_results[step_num] = res
-                                    completed_steps.append(step)
-                                    step_ok = True
-                                    break
-                                except Exception as fix_err:
-                                    print(f"[Executor] ⚠️ Fix failed: {fix_err}")
-
-                            failed_step  = step
-                            failed_error = error_msg
-                            success      = False
-                            break
+                if abort_msg is not None:
+                    return abort_msg
+                if not step_ok:
+                    success = False
 
                 if not step_ok and not failed_step:
                     failed_step  = step
@@ -406,6 +351,84 @@ class AgentExecutor:
 
             replan_attempts += 1
             plan = replan(goal, completed_steps, failed_step, failed_error)
+
+    def _execute_single_step(
+        self,
+        step: dict,
+        step_num: str,
+        tool: str,
+        params: dict,
+        speak: Callable | None,
+        cancel_flag: threading.Event | None,
+        step_results: dict,
+        completed_steps: list
+    ) -> tuple[bool, dict | None, str, str | None]:
+        attempt = 1
+        step_ok = False
+        failed_step = None
+        failed_error = ""
+
+        while attempt <= 3:
+            if cancel_flag and cancel_flag.is_set():
+                break
+            try:
+                result = _call_tool(tool, params, speak)
+                step_results[step_num] = result
+                completed_steps.append(step)
+                print(f"[Executor] ✅ Step {step_num} done: {str(result)[:100]}")
+                step_ok = True
+                break
+
+            except Exception as e:
+                error_msg = str(e)
+                print(f"[Executor] ❌ Step {step_num} attempt {attempt} failed: {error_msg}")
+
+                recovery = analyze_error(step, error_msg, attempt=attempt)
+                decision = recovery["decision"]
+                user_msg = recovery.get("user_message", "")
+
+                if speak and user_msg:
+                    speak(user_msg)
+
+                if decision == ErrorDecision.RETRY:
+                    attempt += 1
+                    import time; time.sleep(2)
+                    continue
+
+                elif decision == ErrorDecision.SKIP:
+                    print(f"[Executor] ⏭️ Skipping step {step_num}")
+                    completed_steps.append(step)
+                    step_ok = True
+                    break
+
+                elif decision == ErrorDecision.ABORT:
+                    msg = f"Task aborted, sir. {recovery.get('reason', '')}"
+                    if speak: speak(msg)
+                    return False, None, "", msg
+
+                else:
+                    fix_suggestion = recovery.get("fix_suggestion", "")
+                    if fix_suggestion and tool != "generated_code":
+                        try:
+                            fixed_step = generate_fix(step, error_msg, fix_suggestion)
+                            if speak: speak("Trying an alternative approach, sir.")
+                            res = _call_tool(
+                                fixed_step["tool"],
+                                fixed_step["parameters"],
+                                speak
+                            )
+                            step_results[step_num] = res
+                            completed_steps.append(step)
+                            step_ok = True
+                            break
+                        except Exception as fix_err:
+                            print(f"[Executor] ⚠️ Fix failed: {fix_err}")
+
+                    failed_step  = step
+                    failed_error = error_msg
+                    break
+
+        return step_ok, failed_step, failed_error, None
 
     def _summarize(self, goal: str, completed_steps: list, speak: Callable | None) -> str:
         fallback = f"All done, sir. Completed {len(completed_steps)} steps for: {goal[:60]}."
