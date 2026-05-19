@@ -645,7 +645,7 @@ def _watch_and_shutdown(steam_path: Path, speak=None,
                 speak(f"Download started for {names}. I'll shut down when done.")
             break
     else:
-        return  
+        return
 
     while time.time() < deadline:
         time.sleep(check_interval)
@@ -716,7 +716,7 @@ def _epic_manifests_path() -> Path | None:
         p = Path.home() / "Library" / "Application Support" \
             / "Epic" / "EpicGamesLauncher" / "Data" / "Manifests"
         return p if p.exists() else None
-    return None  
+    return None
 
 
 def _get_epic_games() -> list[dict]:
@@ -926,6 +926,108 @@ def _get_schedule_status() -> str:
         return "No scheduled game update found."
 
 
+def _handle_list_action(platform: str, results: list) -> str:
+    if platform in ("steam", "both"):
+        steam_path = _find_steam_path()
+        if steam_path:
+            games = _get_steam_games(steam_path)
+            if games:
+                names  = ", ".join(g["name"] for g in games[:8])
+                suffix = f" and {len(games) - 8} more" if len(games) > 8 else ""
+                results.append(f"Steam ({len(games)} games): {names}{suffix}.")
+            else:
+                results.append("Steam: No games found.")
+        else:
+            results.append("Steam: Not installed.")
+    if platform in ("epic", "both"):
+        if is_linux():
+            results.append("Epic: Not natively supported on Linux.")
+        else:
+            games = _get_epic_games()
+            if games:
+                names  = ", ".join(g["name"] for g in games[:8])
+                suffix = f" and {len(games) - 8} more" if len(games) > 8 else ""
+                results.append(f"Epic ({len(games)} games): {names}{suffix}.")
+            else:
+                results.append("Epic: No games found.")
+    return " | ".join(results) or "No platforms found."
+
+
+def _handle_download_status_action(platform: str, results: list) -> str:
+    if platform in ("steam", "both"):
+        steam_path = _find_steam_path()
+        results.append(
+            _get_download_status(steam_path) if steam_path else "Steam: Not installed."
+        )
+    if platform in ("epic", "both"):
+        results.append("Epic download status not available directly.")
+    return " ".join(results)
+
+
+def _handle_install_update_action(action: str, platform: str, game_name: str, app_id: str, shutdown: bool, player, speak, results: list) -> str:
+    if platform in ("steam", "both"):
+        steam_path = _find_steam_path()
+        if not steam_path:
+            results.append("Steam: Not installed.")
+        else:
+            if game_name:
+                installed  = _get_steam_games(steam_path)
+                name_lower = game_name.lower()
+                is_installed = any(
+                    name_lower in g["name"].lower() for g in installed
+                )
+                if not is_installed:
+                    msg = _install_steam_game(
+                        steam_path, game_name=game_name, app_id=app_id
+                    )
+                    if shutdown:
+                        threading.Thread(
+                            target=_watch_and_shutdown,
+                            kwargs={"steam_path": steam_path, "speak": speak},
+                            daemon=True
+                        ).start()
+                        msg += " Auto-shutdown enabled."
+                    if player: player.write_log(f"[GameUpdater] {msg[:100]}")
+                    if speak:  speak(msg)
+                    return msg
+                else:
+                    results.append(
+                        f"Steam: {_update_steam_games(steam_path, game_name=game_name)}"
+                    )
+            else:
+                if action == "install":
+                    results.append("Steam: Please specify a game name to install.")
+                else:
+                    results.append(f"Steam: {_update_steam_games(steam_path)}")
+
+            if shutdown:
+                threading.Thread(
+                    target=_watch_and_shutdown,
+                    kwargs={"steam_path": steam_path, "speak": speak},
+                    daemon=True
+                ).start()
+                results.append("Auto-shutdown enabled.")
+
+    if platform in ("epic", "both"):
+        if is_linux():
+            results.append(
+                "Epic: Not natively supported on Linux. Use Heroic Launcher."
+            )
+        else:
+            epic_exe = _find_epic_exe()
+            if epic_exe:
+                results.append(
+                    f"Epic: {_update_epic_games(epic_exe, game_name=game_name)}"
+                )
+            else:
+                results.append("Epic: Not installed.")
+
+    output = " | ".join(results) or "Nothing to do."
+    if player: player.write_log(f"[GameUpdater] {output[:100]}")
+    if speak:  speak(output)
+    return output
+
+
 def game_updater(parameters: dict, player=None, speak=None) -> str:
     p         = parameters or {}
     action    = p.get("action",    "update").lower().strip()
@@ -943,103 +1045,13 @@ def game_updater(parameters: dict, player=None, speak=None) -> str:
     if action == "schedule_status": return _get_schedule_status()
 
     if action == "list":
-        if platform in ("steam", "both"):
-            steam_path = _find_steam_path()
-            if steam_path:
-                games = _get_steam_games(steam_path)
-                if games:
-                    names  = ", ".join(g["name"] for g in games[:8])
-                    suffix = f" and {len(games) - 8} more" if len(games) > 8 else ""
-                    results.append(f"Steam ({len(games)} games): {names}{suffix}.")
-                else:
-                    results.append("Steam: No games found.")
-            else:
-                results.append("Steam: Not installed.")
-        if platform in ("epic", "both"):
-            if is_linux():
-                results.append("Epic: Not natively supported on Linux.")
-            else:
-                games = _get_epic_games()
-                if games:
-                    names  = ", ".join(g["name"] for g in games[:8])
-                    suffix = f" and {len(games) - 8} more" if len(games) > 8 else ""
-                    results.append(f"Epic ({len(games)} games): {names}{suffix}.")
-                else:
-                    results.append("Epic: No games found.")
-        return " | ".join(results) or "No platforms found."
+        return _handle_list_action(platform, results)
 
     if action == "download_status":
-        if platform in ("steam", "both"):
-            steam_path = _find_steam_path()
-            results.append(
-                _get_download_status(steam_path) if steam_path else "Steam: Not installed."
-            )
-        if platform in ("epic", "both"):
-            results.append("Epic download status not available directly.")
-        return " ".join(results)
+        return _handle_download_status_action(platform, results)
 
     if action in ("install", "update"):
-        if platform in ("steam", "both"):
-            steam_path = _find_steam_path()
-            if not steam_path:
-                results.append("Steam: Not installed.")
-            else:
-                if game_name:
-                    installed  = _get_steam_games(steam_path)
-                    name_lower = game_name.lower()
-                    is_installed = any(
-                        name_lower in g["name"].lower() for g in installed
-                    )
-                    if not is_installed:
-                        msg = _install_steam_game(
-                            steam_path, game_name=game_name, app_id=app_id
-                        )
-                        if shutdown:
-                            threading.Thread(
-                                target=_watch_and_shutdown,
-                                kwargs={"steam_path": steam_path, "speak": speak},
-                                daemon=True
-                            ).start()
-                            msg += " Auto-shutdown enabled."
-                        if player: player.write_log(f"[GameUpdater] {msg[:100]}")
-                        if speak:  speak(msg)
-                        return msg
-                    else:
-                        results.append(
-                            f"Steam: {_update_steam_games(steam_path, game_name=game_name)}"
-                        )
-                else:
-                    if action == "install":
-                        results.append("Steam: Please specify a game name to install.")
-                    else:
-                        results.append(f"Steam: {_update_steam_games(steam_path)}")
-
-                if shutdown:
-                    threading.Thread(
-                        target=_watch_and_shutdown,
-                        kwargs={"steam_path": steam_path, "speak": speak},
-                        daemon=True
-                    ).start()
-                    results.append("Auto-shutdown enabled.")
-
-        if platform in ("epic", "both"):
-            if is_linux():
-                results.append(
-                    "Epic: Not natively supported on Linux. Use Heroic Launcher."
-                )
-            else:
-                epic_exe = _find_epic_exe()
-                if epic_exe:
-                    results.append(
-                        f"Epic: {_update_epic_games(epic_exe, game_name=game_name)}"
-                    )
-                else:
-                    results.append("Epic: Not installed.")
-
-        output = " | ".join(results) or "Nothing to do."
-        if player: player.write_log(f"[GameUpdater] {output[:100]}")
-        if speak:  speak(output)
-        return output
+        return _handle_install_update_action(action, platform, game_name, app_id, shutdown, player, speak, results)
 
     return f"Unknown action: '{action}'."
 
