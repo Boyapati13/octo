@@ -6,6 +6,7 @@ import os
 import platform
 import random
 import subprocess
+import logging
 import sys
 import threading
 import time
@@ -244,8 +245,8 @@ class _SysMetrics:
                 if r.returncode == 0 and r.stdout.strip():
                     raw = float(r.stdout.strip().split("\n")[0])
                     return (raw / 10.0) - 273.15
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug(f"Failed to get Windows CPU temperature via WMI: {e}")
 
         return -1.0
 
