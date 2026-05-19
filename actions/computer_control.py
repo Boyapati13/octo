@@ -342,6 +342,120 @@ def _screen_find(description: str) -> tuple[int, int] | None:
 
     return None
 
+def _handle_type(params: dict) -> str:
+    return _type(params.get("text", ""))
+
+def _handle_smart_type(params: dict) -> str:
+    return _smart_type(
+        params.get("text", ""),
+        clear_first=params.get("clear_first", True),
+    )
+
+def _handle_click(params: dict) -> str:
+    return _click(params.get("x"), params.get("y"), "left", 1)
+
+def _handle_double_click(params: dict) -> str:
+    return _click(params.get("x"), params.get("y"), "left", 2)
+
+def _handle_right_click(params: dict) -> str:
+    return _click(params.get("x"), params.get("y"), "right", 1)
+
+def _handle_move(params: dict) -> str:
+    return _move(int(params.get("x", 0)), int(params.get("y", 0)))
+
+def _handle_drag(params: dict) -> str:
+    return _drag(
+        int(params.get("x1", 0)), int(params.get("y1", 0)),
+        int(params.get("x2", 0)), int(params.get("y2", 0)),
+    )
+
+def _handle_hotkey(params: dict) -> str:
+    raw  = params.get("keys", "")
+    keys = [k.strip() for k in raw.split("+")] if isinstance(raw, str) else raw
+    return _hotkey(*keys)
+
+def _handle_press(params: dict) -> str:
+    return _press(params.get("key", "enter"))
+
+def _handle_scroll(params: dict) -> str:
+    return _scroll(
+        direction=params.get("direction", "down"),
+        amount=int(params.get("amount", 3)),
+    )
+
+def _handle_copy(params: dict) -> str:
+    return _clipboard_get()
+
+def _handle_paste(params: dict) -> str:
+    return _clipboard_paste(params.get("text", ""))
+
+def _handle_screenshot(params: dict) -> str:
+    return _screenshot(params.get("path"))
+
+def _handle_screen_find_action(params: dict) -> str:
+    coords = _screen_find(params.get("description", ""))
+    return f"{coords[0]},{coords[1]}" if coords else "NOT_FOUND"
+
+def _handle_screen_click(params: dict) -> str:
+    desc   = params.get("description", "")
+    coords = _screen_find(desc)
+    if coords:
+        time.sleep(0.2)
+        _click(x=coords[0], y=coords[1])
+        return f"Clicked '{desc}' at {coords}"
+    return f"Element not found on screen: '{desc}'"
+
+def _handle_wait(params: dict) -> str:
+    secs = float(params.get("seconds", 1.0))
+    secs = min(secs, 30.0)
+    time.sleep(secs)
+    return f"Waited {secs}s"
+
+def _handle_clear_field(params: dict) -> str:
+    return _clear_field()
+
+def _handle_focus_window(params: dict) -> str:
+    return _focus_window(params.get("title", ""))
+
+def _handle_random_data(params: dict) -> str:
+    dt     = params.get("type", "name")
+    result = _random_data(dt)
+    print(f"[ComputerControl] 🎲 random {dt} → {result}")
+    return result
+
+def _handle_user_data(params: dict) -> str:
+    field   = params.get("field", "name")
+    profile = _user_profile()
+    value   = profile.get(field, "")
+    if not value:
+        value = _random_data(field)
+        print(f"[ComputerControl] ⚠️ No '{field}' in memory, using random: {value}")
+    return value
+
+_ACTION_HANDLERS = {
+    "type": _handle_type,
+    "smart_type": _handle_smart_type,
+    "click": _handle_click,
+    "left_click": _handle_click,
+    "double_click": _handle_double_click,
+    "right_click": _handle_right_click,
+    "move": _handle_move,
+    "drag": _handle_drag,
+    "hotkey": _handle_hotkey,
+    "press": _handle_press,
+    "scroll": _handle_scroll,
+    "copy": _handle_copy,
+    "paste": _handle_paste,
+    "screenshot": _handle_screenshot,
+    "screen_find": _handle_screen_find_action,
+    "screen_click": _handle_screen_click,
+    "wait": _handle_wait,
+    "clear_field": _handle_clear_field,
+    "focus_window": _handle_focus_window,
+    "random_data": _handle_random_data,
+    "user_data": _handle_user_data,
+}
+
 def computer_control(
     parameters: dict,
     response=None,
@@ -403,97 +517,11 @@ def computer_control(
 
     try:
 
-        if action == "type":
-            return _type(params.get("text", ""))
+        handler = _ACTION_HANDLERS.get(action)
+        if handler:
+            return handler(params)
 
-        if action == "smart_type":
-            return _smart_type(
-                params.get("text", ""),
-                clear_first=params.get("clear_first", True),
-            )
-
-        if action in ("click", "left_click"):
-            return _click(params.get("x"), params.get("y"), "left", 1)
-
-        if action == "double_click":
-            return _click(params.get("x"), params.get("y"), "left", 2)
-
-        if action == "right_click":
-            return _click(params.get("x"), params.get("y"), "right", 1)
-
-        if action == "move":
-            return _move(int(params.get("x", 0)), int(params.get("y", 0)))
-
-        if action == "drag":
-            return _drag(
-                int(params.get("x1", 0)), int(params.get("y1", 0)),
-                int(params.get("x2", 0)), int(params.get("y2", 0)),
-            )
-
-        if action == "hotkey":
-            raw  = params.get("keys", "")
-            keys = [k.strip() for k in raw.split("+")] if isinstance(raw, str) else raw
-            return _hotkey(*keys)
-
-        if action == "press":
-            return _press(params.get("key", "enter"))
-
-        if action == "scroll":
-            return _scroll(
-                direction=params.get("direction", "down"),
-                amount=int(params.get("amount", 3)),
-            )
-
-        if action == "copy":
-            return _clipboard_get()
-
-        if action == "paste":
-            return _clipboard_paste(params.get("text", ""))
-
-        if action == "screenshot":
-            return _screenshot(params.get("path"))
-
-        if action == "screen_find":
-            coords = _screen_find(params.get("description", ""))
-            return f"{coords[0]},{coords[1]}" if coords else "NOT_FOUND"
-
-        if action == "screen_click":
-            desc   = params.get("description", "")
-            coords = _screen_find(desc)
-            if coords:
-                time.sleep(0.2)
-                _click(x=coords[0], y=coords[1])
-                return f"Clicked '{desc}' at {coords}"
-            return f"Element not found on screen: '{desc}'"
-
-        if action == "wait":
-            secs = float(params.get("seconds", 1.0))
-            secs = min(secs, 30.0)
-            time.sleep(secs)
-            return f"Waited {secs}s"
-
-        if action == "clear_field":
-            return _clear_field()
-
-        if action == "focus_window":
-            return _focus_window(params.get("title", ""))
-
-        if action == "random_data":
-            dt     = params.get("type", "name")
-            result = _random_data(dt)
-            print(f"[ComputerControl] 🎲 random {dt} → {result}")
-            return result
-
-        if action == "user_data":
-            field   = params.get("field", "name")
-            profile = _user_profile()
-            value   = profile.get(field, "")
-            if not value:
-                value = _random_data(field)
-                print(f"[ComputerControl] ⚠️ No '{field}' in memory, using random: {value}")
-            return value
-
-        return f"Unknown action: '{action}'"
+        return f"Unknown action: {action!r}"
 
     except Exception as e:
         print(f"[ComputerControl] ❌ {action}: {e}")
