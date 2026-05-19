@@ -18,6 +18,7 @@ OCTO-Pro is a fully local, open-source personal AI that hears, sees, and control
 | **OCTO** (core) | Real-time voice, screen vision, system control, UI |
 | **[NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent)** | Context compression, MCP tools, skills, extended engine |
 | **[bytedance/deer-flow](https://github.com/bytedance/deer-flow)** | LangGraph sub-agents, deep research, multi-channel gateway |
+| **[Alishahryar1/free-claude-code](https://github.com/Alishahryar1/free-claude-code)** | Claude Code CLI through proxy, LLM orchestration |
 
 ---
 
@@ -41,12 +42,20 @@ OCTO-Pro is a fully local, open-source personal AI that hears, sees, and control
 
 ## ⚡ Quick Start
 
+**PowerShell (Auto-Install all repos):**
+```powershell
+git clone https://github.com/Boyapati13/octo.git
+cd octo
+.\install.ps1
+```
+
+**Bash / Manual Install:**
 ```bash
 git clone https://github.com/Boyapati13/octo.git
 cd octo
 pip install -r requirements.txt
 playwright install
-python main.py
+./start_octo_pro.sh
 ```
 
 ### Optional: DeerFlow backend (for deep research & sub-agents)
@@ -157,3 +166,4 @@ Built on the shoulders of giants:
 - [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) — context engine, MCP, skills
 - [bytedance/deer-flow](https://github.com/bytedance/deer-flow) — LangGraph research agent, channels
 - [FatihMakes/Mark-XXXIX](https://github.com/FatihMakes/Mark-XXXIX) — core voice assistant foundation
+- [Alishahryar1/free-claude-code](https://github.com/Alishahryar1/free-claude-code) — Claude Code proxy orchestration
