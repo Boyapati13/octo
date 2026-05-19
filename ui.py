@@ -1,7 +1,6 @@
 ﻿from __future__ import annotations
 
 import json
-import logging
 import math
 import os
 import platform
@@ -26,7 +25,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QPushButton, QScrollArea, QSizePolicy, QTextEdit,
-    QVBoxLayout, QWidget, QProgressBar,
+    QVBoxLayout, QWidget,
 )
 
 def _base_dir() -> Path:
@@ -97,9 +96,9 @@ class _SysMetrics:
     def __init__(self):
         self.cpu  = 0.0
         self.mem  = 0.0
-        self.net  = 0.0
-        self.gpu  = -1.0
-        self.tmp  = -1.0
+        self.net  = 0.0   
+        self.gpu  = -1.0  
+        self.tmp  = -1.0  
         self._lock = threading.Lock()
         self._last_net = psutil.net_io_counters()
         self._last_net_t = time.time()
@@ -170,10 +169,10 @@ class _SysMetrics:
                         if len(parts) >= 2:
                             try:
                                 return float(parts[1].strip().replace("%", ""))
-                            except ValueError as e:
-                                logging.debug(f"Failed to parse rocm-smi GPU usage output '{parts[1]}': {e}")
-            except Exception as e:
-                logging.debug(f"Failed to fetch or parse rocm-smi output: {e}")
+                            except ValueError:
+                                pass
+            except Exception:
+                pass
 
             # Intel GPU (Linux)
             try:
