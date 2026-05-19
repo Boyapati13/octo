@@ -109,36 +109,27 @@ def volume_set(value: int):
             capture_output=True)
         return
 
-def _change_linux_brightness_xrandr(delta: float):
-    """Fallback brightness change using xrandr without shell=True."""
+def _adjust_linux_brightness_xrandr(delta: float):
     try:
-        xrandr_out = subprocess.check_output(["xrandr"], text=True)
+        xrandr_out = subprocess.check_output(["xrandr"]).decode()
         display = None
         for line in xrandr_out.splitlines():
             if " connected" in line:
                 display = line.split()[0]
                 break
-
         if not display:
             return
 
-        xrandr_verbose = subprocess.check_output(["xrandr", "--verbose"], text=True)
-        current_brightness = 1.0
-        for line in xrandr_verbose.splitlines():
-            if "Brightness:" in line:
-                try:
-                    current_brightness = float(line.split("Brightness:")[1].split()[0])
-                except (ValueError, IndexError):
-                    pass
-                break
+        xrandr_verbose = subprocess.check_output(["xrandr", "--verbose"]).decode()
+        current_b = 1.0
+        if "Brightness:" in xrandr_verbose:
+            try:
+                current_b = float(xrandr_verbose.split("Brightness:")[1].split()[0])
+            except (IndexError, ValueError):
+                pass
 
-        new_brightness = current_brightness + delta
-        if new_brightness > 1.0:
-            new_brightness = 1.0
-        elif new_brightness < 0.1:
-            new_brightness = 0.1
-
-        subprocess.run(["xrandr", "--output", display, "--brightness", str(new_brightness)], capture_output=True)
+        new_b = max(0.1, min(1.0, current_b + delta))
+        subprocess.run(["xrandr", "--output", display, "--brightness", str(new_b)], capture_output=True)
     except Exception as e:
         print(f"[Settings] xrandr brightness adjustment failed: {e}")
 
@@ -152,7 +143,7 @@ def brightness_up():
                 capture_output=True).returncode == 0:
             subprocess.run(["brightnessctl", "set", "+10%"], capture_output=True)
         else:
-            _change_linux_brightness_xrandr(0.1)
+            _adjust_linux_brightness_xrandr(0.1)
     else:
         try:
             subprocess.run(
@@ -175,7 +166,7 @@ def brightness_down():
                 capture_output=True).returncode == 0:
             subprocess.run(["brightnessctl", "set", "10%-"], capture_output=True)
         else:
-            _change_linux_brightness_xrandr(-0.1)
+            _adjust_linux_brightness_xrandr(-0.1)
     else:
         try:
             subprocess.run(
