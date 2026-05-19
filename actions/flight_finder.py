@@ -38,12 +38,7 @@ _RELATIVE_MAP_KEYS = {
 }
 
 
-def _parse_date(raw: str) -> str:
-
-    raw   = raw.strip()
-    lower = raw.lower()
-    today = datetime.now()
-
+def _parse_exact_date(raw: str) -> str | None:
     if re.match(r"\d{4}-\d{2}-\d{2}", raw):
         return raw
     for fmt in ("%d/%m/%Y", "%m/%d/%Y", "%d.%m.%Y", "%d-%m-%Y"):
@@ -51,7 +46,9 @@ def _parse_date(raw: str) -> str:
             return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
         except ValueError:
             pass
+    return None
 
+def _parse_relative_date(lower: str, today: datetime) -> str | None:
     relative = {
         "today": today, "bugün": today,
         "tomorrow": today + timedelta(days=1),
@@ -60,7 +57,9 @@ def _parse_date(raw: str) -> str:
     for key, val in relative.items():
         if key in lower:
             return val.strftime("%Y-%m-%d")
+    return None
 
+def _parse_date_with_gemini(raw: str, today: datetime) -> str | None:
     try:
         import google.generativeai as genai
         genai.configure(api_key=_get_api_key())
@@ -75,7 +74,9 @@ def _parse_date(raw: str) -> str:
             return result
     except Exception as e:
         print(f"[FlightFinder] ⚠️ Gemini date parse failed: {e}")
+    return None
 
+def _parse_month_date(lower: str, raw: str, today: datetime) -> str | None:
     for month_name, month_num in _MONTH_MAP.items():
         if month_name in lower:
             day_match = re.search(r"\d{1,2}", raw)
@@ -83,6 +84,24 @@ def _parse_date(raw: str) -> str:
                 day  = int(day_match.group())
                 year = today.year if month_num >= today.month else today.year + 1
                 return f"{year}-{month_num:02d}-{day:02d}"
+    return None
+
+def _parse_date(raw: str) -> str:
+    raw   = raw.strip()
+    lower = raw.lower()
+    today = datetime.now()
+
+    if exact_match := _parse_exact_date(raw):
+        return exact_match
+
+    if relative_match := _parse_relative_date(lower, today):
+        return relative_match
+
+    if gemini_match := _parse_date_with_gemini(raw, today):
+        return gemini_match
+
+    if month_match := _parse_month_date(lower, raw, today):
+        return month_match
 
     # Last resort: today
     print(f"[FlightFinder] ⚠️ Could not parse date '{raw}' — using today.")
@@ -116,7 +135,7 @@ def _build_google_flights_url(
     return (
         f"{base}"
         f"?q={trip}"
-        f"&tfs=CBwQAhoeEgoyMDI1LTAzLTE1agcIARIDSVNUcgcIARIDTEhS"   
+        f"&tfs=CBwQAhoeEgoyMDI1LTAzLTE1agcIARIDSVNUcgcIARIDTEhS"
         f"&curr=USD"
         f"&cabin={cabin_code}"
         f"&adults={passengers}"
@@ -294,7 +313,7 @@ def _save_to_desktop(content: str, origin: str, destination: str) -> str:
     return str(filepath)
 
 
-def flight_finder(parameters: dict, player=None, speak=None) -> str:
+def _extract_and_validate_params(parameters: dict) -> tuple[dict | str, bool]:
     params = parameters or {}
 
     origin      = params.get("origin",      "").strip()
@@ -306,16 +325,41 @@ def flight_finder(parameters: dict, player=None, speak=None) -> str:
     save        = bool(params.get("save", False))
 
     if not origin or not destination:
-        return "Please provide both origin and destination, sir."
+        return "Please provide both origin and destination, sir.", False
     if not date_raw:
-        return "Please provide a departure date, sir."
+        return "Please provide a departure date, sir.", False
 
-    # Normalise cabin value
     if cabin not in _CABIN_CODE:
         cabin = "economy"
 
     date        = _parse_date(date_raw)
     return_date = _parse_date(return_raw) if return_raw else None
+
+    parsed_params = {
+        "origin": origin,
+        "destination": destination,
+        "date": date,
+        "return_date": return_date,
+        "passengers": passengers,
+        "cabin": cabin,
+        "save": save
+    }
+    return parsed_params, True
+
+
+def flight_finder(parameters: dict, player=None, speak=None) -> str:
+    parsed_params, is_valid = _extract_and_validate_params(parameters)
+
+    if not is_valid:
+        return parsed_params # This will be the error message
+
+    origin = parsed_params["origin"]
+    destination = parsed_params["destination"]
+    date = parsed_params["date"]
+    return_date = parsed_params["return_date"]
+    passengers = parsed_params["passengers"]
+    cabin = parsed_params["cabin"]
+    save = parsed_params["save"]
 
     if player:
         player.write_log(f"[FlightFinder] {origin} → {destination} on {date}")
