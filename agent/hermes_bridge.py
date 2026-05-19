@@ -1,15 +1,13 @@
 """
 agent/hermes_bridge.py
-=======================
-OCTO extended agent engine.
+======================
+OCTO extended context engine — powered by embedded Hermes modules.
 
-Integrates three systems:
-  ① OCTO native planner/executor        — actions, voice, UI
-  ② NousResearch/hermes-agent runtime   — context compression, memory, skills, MCP
-  ③ bytedance/deer-flow LangGraph       — sub-agents, deep research, tool sandboxing
-
-All branding says OCTO. No third-party names surface to the user.
+All Hermes source files were pulled directly into octo/agent/*_hermes.py.
+This module re-exports clean aliases so the rest of OCTO never needs to
+know where the code came from.
 """
+
 from __future__ import annotations
 
 import json
@@ -20,16 +18,17 @@ import threading
 from pathlib import Path
 from typing import Callable, Optional
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
-# ── Internal paths ────────────────────────────────────────────────────────────
-BASE_DIR     = Path(__file__).resolve().parent.parent
-CFG_PATH     = BASE_DIR / "config" / "api_keys.json"
-GW_CFG_PATH  = BASE_DIR / "config" / "gateway.json"
-MEM_DIR      = Path(os.environ.get("USERPROFILE", Path.home())) / ".octo"
-_GEMINI_COMPAT = "https://generativelanguage.googleapis.com/v1beta/openai/"
+BASE_DIR    = Path(__file__).resolve().parent.parent
+CFG_PATH    = BASE_DIR / "config" / "api_keys.json"
+GW_CFG_PATH = BASE_DIR / "config" / "gateway.json"
+MEM_DIR     = Path(os.environ.get("USERPROFILE", str(Path.home()))) / ".octo"
 
-logger = logging.getLogger(__name__)
+# Ensure agent/ is on path so *_hermes imports work
+_agent_dir = str(BASE_DIR / "agent")
+if _agent_dir not in sys.path:
+    sys.path.insert(0, _agent_dir)
 
 
 # ── Config helpers ────────────────────────────────────────────────────────────
@@ -39,14 +38,6 @@ def _api_key() -> str:
         return json.loads(CFG_PATH.read_text(encoding="utf-8")).get("gemini_api_key", "")
     except Exception:
         return ""
-
-def _load_gateway_cfg() -> dict:
-    if GW_CFG_PATH.exists():
-        try:
-            return json.loads(GW_CFG_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return {}
 
 
 # ── Memory sync ───────────────────────────────────────────────────────────────
@@ -68,40 +59,49 @@ def sync_memory() -> None:
                     lines.append(f"- **{key.replace('_',' ').title()}**: {val}\n")
             lines.append("\n")
         (MEM_DIR / "MEMORY.md").write_text("".join(lines), encoding="utf-8")
-        logger.debug("[OCTO] Memory synced to MEMORY.md")
     except Exception as e:
-        logger.warning("[OCTO] Memory sync: %s", e)
+        log.debug("Memory sync: %s", e)
+
+# Alias used by main.py scheduler integration
+sync_memory_to_hermes = sync_memory
 
 
-# ── Context compression ────────────────────────────────────────────────────────
+# ── Context compression (Hermes embedded) ─────────────────────────────────────
 
-_compressor = None
+_compressor      = None
 _compressor_lock = threading.Lock()
 
 
 def get_compressor():
-    """Lazy-init the context compressor (Hermes-inspired)."""
+    """Lazy-init the embedded Hermes context compressor."""
     global _compressor
     with _compressor_lock:
         if _compressor is None:
             try:
+                # Try the OCTO native one first
                 from agent.context_compressor import ContextCompressor
-                _compressor = ContextCompressor(context_limit=1_000_000)  # Gemini 1M ctx
-                logger.info("[OCTO] Context compressor initialised")
-            except Exception as e:
-                logger.warning("[OCTO] Context compressor unavailable: %s", e)
-        return _compressor
+                _compressor = ContextCompressor(context_limit=1_000_000)
+                log.info("[Hermes] Native ContextCompressor loaded")
+            except Exception:
+                try:
+                    # Fall back to the pulled-in Hermes version
+                    from agent.context_compressor_hermes import ContextCompressor  # type: ignore
+                    _compressor = ContextCompressor(context_limit=1_000_000)
+                    log.info("[Hermes] Hermes ContextCompressor loaded")
+                except Exception as e:
+                    log.debug("[Hermes] Compressor unavailable: %s", e)
+    return _compressor
 
 
 def maybe_compress(messages: list, system_prompt: str = "") -> list:
-    """Compress message history if needed. Returns (possibly shorter) list."""
+    """Compress message history if needed."""
     try:
         comp = get_compressor()
         if comp and comp.should_compress(messages):
-            logger.info("[OCTO] Compressing context (%d messages)…", len(messages))
+            log.info("[Hermes] Compressing %d messages…", len(messages))
             return comp.compress(messages, system_prompt=system_prompt)
     except Exception as e:
-        logger.warning("[OCTO] Compression error: %s", e)
+        log.debug("Compression error: %s", e)
     return messages
 
 
@@ -112,7 +112,7 @@ _mcp_lock    = threading.Lock()
 
 
 def get_mcp_tools() -> list:
-    """Start MCP servers (once) and return all available tools."""
+    """Start MCP servers once, return tool list."""
     global _mcp_started
     with _mcp_lock:
         if not _mcp_started:
@@ -121,10 +121,10 @@ def get_mcp_tools() -> list:
                 result = start_all()
                 if result:
                     total = sum(len(v) for v in result.values())
-                    logger.info("[OCTO] MCP: %d servers, %d tools", len(result), total)
+                    log.info("[MCP] %d servers, %d tools", len(result), total)
                 _mcp_started = True
             except Exception as e:
-                logger.debug("[OCTO] MCP init: %s", e)
+                log.debug("[MCP] init: %s", e)
     try:
         from agent.mcp_bridge import get_all_tools
         return get_all_tools()
@@ -133,12 +133,31 @@ def get_mcp_tools() -> list:
 
 
 def call_mcp_tool(server_name: str, tool_name: str, arguments: dict) -> str:
-    """Call an MCP tool and return its result."""
     try:
         from agent.mcp_bridge import call_tool
         return call_tool(server_name, tool_name, arguments)
     except Exception as e:
         return f"[MCP] {e}"
+
+
+# ── Skill utilities (Hermes embedded) ─────────────────────────────────────────
+
+def load_skill_bundle(name: str) -> dict | None:
+    """Load a skill bundle by name (Hermes embedded)."""
+    try:
+        from agent.skill_bundles_hermes import load_bundle  # type: ignore
+        return load_bundle(name)
+    except Exception:
+        return None
+
+
+def preprocess_skill(content: str, context: dict) -> str:
+    """Apply Hermes skill preprocessing."""
+    try:
+        from agent.skill_preprocessing_hermes import preprocess  # type: ignore
+        return preprocess(content, context)
+    except Exception:
+        return content
 
 
 # ── Smart router ───────────────────────────────────────────────────────────────
@@ -151,110 +170,67 @@ _EXTENDED_KEYWORDS = {
     "skill", "delegation", "subagent", "mcp",
 }
 
+
 def should_use_extended(goal: str) -> bool:
-    gl = goal.lower()
-    return any(kw in gl for kw in _EXTENDED_KEYWORDS)
+    return any(kw in goal.lower() for kw in _EXTENDED_KEYWORDS)
 
 
 # ── Extended agent executor ───────────────────────────────────────────────────
 
 def run_extended(goal: str, speak: Callable | None = None, max_turns: int = 20) -> str:
-    """
-    Run goal through the extended 70+ tool engine.
-    Falls back gracefully to OCTO's native planner if the extended engine is unavailable.
-    """
-    # Sync memory before starting
+    """Run goal through the extended engine (native planner)."""
     threading.Thread(target=sync_memory, daemon=True).start()
-
-    # Inject MCP tools into environment if available
     mcp_tools = get_mcp_tools()
     if mcp_tools and speak:
         speak(f"Loading {len(mcp_tools)} MCP tools.")
-
-    key = _api_key()
-    if not key:
-        return _native_fallback(goal, speak)
-
-    try:
-        import sys
-        _add_engine_path()
-
-        # Try to import the underlying run_agent
-        from run_agent import AIAgent  # type: ignore  # noqa: F401
-
-        env_backup = {}
-        env_patch  = {
-            "OPENAI_API_KEY":  key,
-            "OPENAI_BASE_URL": _GEMINI_COMPAT,
-        }
-        for k, v in env_patch.items():
-            env_backup[k] = os.environ.get(k, "")
-            os.environ[k] = v
-
-        try:
-            agent  = AIAgent.__new__(AIAgent)
-            result = agent.run_goal(goal, max_turns=max_turns)
-            return result or "Done."
-        finally:
-            for k, v in env_backup.items():
-                os.environ[k] = v
-
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.error("[OCTO Extended] Error: %s", e)
-
     return _native_fallback(goal, speak)
 
 
 def _native_fallback(goal: str, speak: Callable | None = None) -> str:
-    """Fall back to OCTO's native planner/executor."""
     try:
         from agent.planner  import create_plan
         from agent.executor import execute_plan
         if speak:
             speak("Using native agent.")
-        plan   = create_plan(goal)
-        result = execute_plan(plan, speak=speak)
-        return result
+        return execute_plan(create_plan(goal), speak=speak)
     except Exception as e:
         return f"Could not execute task: {e}"
 
 
-def _add_engine_path():
-    """Add extended engine location to sys.path if needed."""
-    engine_path = str(MEM_DIR.parent / ".hermes_engine")
-    if engine_path not in sys.path and Path(engine_path).exists():
-        sys.path.insert(0, engine_path)
+# ── Cron scheduling ───────────────────────────────────────────────────────────
+
+def create_cron_job(prompt: str, schedule: str, label: str = "") -> dict | None:
+    """Register a cron job in the scheduler."""
+    try:
+        from agent.task_queue import get_queue
+        q = get_queue()
+        job = q.schedule(prompt=prompt, cron=schedule, label=label)
+        return job
+    except Exception as e:
+        log.warning("[Cron] %s", e)
+        return None
 
 
-# ── Gateway integration ────────────────────────────────────────────────────────
+# ── Gateway ───────────────────────────────────────────────────────────────────
 
 _gateway_manager: Optional[object] = None
 _gateway_lock = threading.Lock()
 
 
 def get_gateway():
-    """Lazy-init the multi-platform channel manager."""
     global _gateway_manager
     with _gateway_lock:
         if _gateway_manager is None:
             try:
-                from channels.manager import ChannelManager
+                from channels.manager import ChannelManager  # type: ignore
                 _gateway_manager = ChannelManager()
-                logger.info("[OCTO] Channel manager initialised")
+                log.info("[Gateway] ChannelManager initialised")
             except Exception as e:
-                logger.debug("[OCTO] Gateway init: %s", e)
-        return _gateway_manager
+                log.debug("[Gateway] init: %s", e)
+    return _gateway_manager
 
 
-def start_gateway(on_message: Callable[[str, str, str], None] | None = None) -> list:
-    """
-    Start all configured messaging channels.
-
-    on_message: callback(channel_name, user_id, text)
-    Returns list of started channel names.
-    """
+def start_gateway(on_message: Callable | None = None) -> list:
     mgr = get_gateway()
     if not mgr:
         return []
@@ -264,13 +240,11 @@ def start_gateway(on_message: Callable[[str, str, str], None] | None = None) -> 
 
 
 def send_via_gateway(channel: str, user_id: str, text: str) -> None:
-    """Send a reply on a specific channel."""
     mgr = get_gateway()
     if mgr:
         mgr.send(channel, user_id, text)
 
 
 def gateway_status() -> dict:
-    """Return running status of all channels."""
     mgr = get_gateway()
     return mgr.status() if mgr else {}
