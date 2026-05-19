@@ -4,6 +4,8 @@ google-genai
 google-generativeai
 requests
 httpx
+aiohttp
+sse-starlette
 
 # ── UI ────────────────────────────────────────────────────────────────────────
 PyQt6
@@ -47,6 +49,18 @@ mcp; extra == "mcp"                     # pip install mcp
 # ── DeerFlow / LangGraph backend ─────────────────────────────────────────────
 # Install separately: cd deer-flow && pip install -e .
 # or: pip install langgraph langchain-core
+langgraph; extra == "deerflow"
+langchain-core; extra == "deerflow"
+
+# ── Free-Claude-Code Model Proxy (optional) ───────────────────────────────────
+# Install separately: cd free-claude-code && pip install -r requirements.txt
+# Provides: FastAPI proxy, Admin UI, multi-backend routing
+fastapi; extra == "proxy"
+uvicorn; extra == "proxy"
+
+# ── Hermes Agent Memory (optional) ───────────────────────────────────────────
+# Install separately: cd hermes-agent && pip install -e .
+# Provides: FTS5 session search, Honcho user modeling, skill creation
 
 # ── Dev / Testing ────────────────────────────────────────────────────────────
 pytest; extra == "dev"
