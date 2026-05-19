@@ -96,9 +96,9 @@ class _SysMetrics:
     def __init__(self):
         self.cpu  = 0.0
         self.mem  = 0.0
-        self.net  = 0.0   
-        self.gpu  = -1.0  
-        self.tmp  = -1.0  
+        self.net  = 0.0
+        self.gpu  = -1.0
+        self.tmp  = -1.0
         self._lock = threading.Lock()
         self._last_net = psutil.net_io_counters()
         self._last_net_t = time.time()
@@ -1085,36 +1085,47 @@ class SettingsOverlay(QWidget):
         p.write_text(json.dumps(data, indent=4), encoding="utf-8")
 
     # ── build ─────────────────────────────────────────────────────────────────
-    def _build_ui(self):
-        cfg    = self._cfg
-        gw_cfg = self._load_gw_cfg()
 
+    @staticmethod
+    def _lbl(txt, size=9, bold=False, color=C.PRI, align=Qt.AlignmentFlag.AlignLeft):
+        w = QLabel(txt); w.setAlignment(align)
+        w.setFont(QFont("Courier New", size, QFont.Weight.Bold if bold else QFont.Weight.Normal))
+        w.setStyleSheet(f"color: {color}; background: transparent;")
+        return w
+
+    @staticmethod
+    def _sep():
+        s = QFrame(); s.setFrameShape(QFrame.Shape.HLine)
+        s.setStyleSheet(f"color: {C.BORDER};"); return s
+
+    @staticmethod
+    def _field(ph="", echo=False, val=""):
+        f = QLineEdit(val); f.setPlaceholderText(ph)
+        f.setFont(QFont("Courier New", 9)); f.setFixedHeight(28)
+        if echo: f.setEchoMode(QLineEdit.EchoMode.Password)
+        f.setStyleSheet(f"""
+            QLineEdit {{background:#000d12;color:{C.TEXT};
+                border:1px solid {C.BORDER};border-radius:3px;padding:2px 7px;}}
+            QLineEdit:focus {{border:1px solid {C.PRI};}}""")
+        return f
+
+    def _build_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 16, 24, 16)
         root.setSpacing(6)
 
-        def _lbl(txt, size=9, bold=False, color=C.PRI,
-                 align=Qt.AlignmentFlag.AlignLeft):
-            w = QLabel(txt); w.setAlignment(align)
-            w.setFont(QFont("Courier New", size,
-                            QFont.Weight.Bold if bold else QFont.Weight.Normal))
-            w.setStyleSheet(f"color: {color}; background: transparent;")
-            return w
+        self._build_header_tabs(root)
+        self._build_ai_tab()
+        self._build_gw_tab()
 
-        def _sep():
-            s = QFrame(); s.setFrameShape(QFrame.Shape.HLine)
-            s.setStyleSheet(f"color: {C.BORDER};"); return s
+        # ── stack both panels ──
+        root.addWidget(self._ai_panel,  stretch=1)
+        root.addWidget(self._gw_panel,  stretch=1)
+        self._gw_panel.hide()
 
-        def _field(ph="", echo=False, val=""):
-            f = QLineEdit(val); f.setPlaceholderText(ph)
-            f.setFont(QFont("Courier New", 9)); f.setFixedHeight(28)
-            if echo: f.setEchoMode(QLineEdit.EchoMode.Password)
-            f.setStyleSheet(f"""
-                QLineEdit {{background:#000d12;color:{C.TEXT};
-                    border:1px solid {C.BORDER};border-radius:3px;padding:2px 7px;}}
-                QLineEdit:focus {{border:1px solid {C.PRI};}}""")
-            return f
+        self._build_footer(root)
 
+    def _build_header_tabs(self, root):
         _TAB_SS = f"""
             QPushButton {{background:transparent;color:{C.TEXT_DIM};
                 border:1px solid {C.BORDER};border-radius:3px;
@@ -1122,9 +1133,7 @@ class SettingsOverlay(QWidget):
             QPushButton:checked {{background:{C.PRI_GHO};color:{C.PRI};border:1px solid {C.PRI};}}
             QPushButton:hover:!checked {{color:{C.TEXT_MED};border:1px solid {C.BORDER_B};}}"""
 
-        # ── header + tabs ──
-        root.addWidget(_lbl("⚙  OCTO SETTINGS", 12, True, C.PRI,
-                            Qt.AlignmentFlag.AlignCenter))
+        root.addWidget(self._lbl("⚙  OCTO SETTINGS", 12, True, C.PRI, Qt.AlignmentFlag.AlignCenter))
 
         tab_row = QHBoxLayout(); tab_row.setSpacing(4)
         self._stab_btns: dict[str, QPushButton] = {}
@@ -1136,16 +1145,15 @@ class SettingsOverlay(QWidget):
             tab_row.addWidget(b); self._stab_btns[name] = b
         tab_row.addStretch()
         root.addLayout(tab_row)
-        root.addWidget(_sep())
+        root.addWidget(self._sep())
 
-        # ════════════════════════════════════════════
-        # AI TAB
-        # ════════════════════════════════════════════
+    def _build_ai_tab(self):
+        cfg = self._cfg
         self._ai_panel = QWidget(); self._ai_panel.setStyleSheet("background:transparent;")
         ai = QVBoxLayout(self._ai_panel); ai.setContentsMargins(0,4,0,0); ai.setSpacing(5)
 
-        ai.addWidget(_lbl("GEMINI API KEY", 8, color=C.TEXT_DIM))
-        self._key_f = _field("AIza…", echo=True, val=cfg.get("gemini_api_key", ""))
+        ai.addWidget(self._lbl("GEMINI API KEY", 8, color=C.TEXT_DIM))
+        self._key_f = self._field("AIza…", echo=True, val=cfg.get("gemini_api_key", ""))
         ai.addWidget(self._key_f)
 
         gm_row = QHBoxLayout(); gm_row.setSpacing(6)
@@ -1162,13 +1170,13 @@ class SettingsOverlay(QWidget):
         gm_row.addWidget(self._gm_detect_btn); gm_row.addWidget(self._gm_detect_lbl, stretch=1)
         ai.addLayout(gm_row)
 
-        ai.addWidget(_sep())
-        ai.addWidget(_lbl("VOICE MODEL  (Gemini Live — real-time audio)", 8, color=C.TEXT_DIM))
-        self._live_model_f = _field(_DEFAULT_LIVE_MODEL, val=cfg.get("live_model", _DEFAULT_LIVE_MODEL))
+        ai.addWidget(self._sep())
+        ai.addWidget(self._lbl("VOICE MODEL  (Gemini Live — real-time audio)", 8, color=C.TEXT_DIM))
+        self._live_model_f = self._field(_DEFAULT_LIVE_MODEL, val=cfg.get("live_model", _DEFAULT_LIVE_MODEL))
         ai.addWidget(self._live_model_f)
 
-        ai.addWidget(_sep())
-        ai.addWidget(_lbl("TEXT MODEL  (agents · chat · code · vision)", 8, color=C.TEXT_DIM))
+        ai.addWidget(self._sep())
+        ai.addWidget(self._lbl("TEXT MODEL  (agents · chat · code · vision)", 8, color=C.TEXT_DIM))
         btn_row = QHBoxLayout(); btn_row.setSpacing(4)
         self._model_btns: dict[str, QPushButton] = {}
         cur_model = cfg.get("text_llm_provider", "auto")
@@ -1180,10 +1188,10 @@ class SettingsOverlay(QWidget):
         ai.addLayout(btn_row)
         self._sel_model(cur_model)
 
-        ai.addWidget(_sep())
-        ai.addWidget(_lbl("LOCAL AI — OLLAMA", 8, color=C.TEXT_DIM))
+        ai.addWidget(self._sep())
+        ai.addWidget(self._lbl("LOCAL AI — OLLAMA", 8, color=C.TEXT_DIM))
         url_row = QHBoxLayout(); url_row.setSpacing(6)
-        self._ollama_url_f = _field("http://localhost:11434",
+        self._ollama_url_f = self._field("http://localhost:11434",
                                     val=cfg.get("ollama_base_url", "http://localhost:11434"))
         det = QPushButton("⟳ Detect"); det.setFont(QFont("Courier New", 8)); det.setFixedHeight(28)
         det.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1193,15 +1201,14 @@ class SettingsOverlay(QWidget):
         det.clicked.connect(self._detect_models)
         url_row.addWidget(self._ollama_url_f, stretch=3); url_row.addWidget(det)
         ai.addLayout(url_row)
-        self._ollama_mod_f = _field("auto  (e.g. gemma3, llama3.2…)", val=cfg.get("ollama_model",""))
+        self._ollama_mod_f = self._field("auto  (e.g. gemma3, llama3.2…)", val=cfg.get("ollama_model",""))
         ai.addWidget(self._ollama_mod_f)
-        self._detected_lbl = _lbl("", 7, color=C.GREEN)
+        self._detected_lbl = self._lbl("", 7, color=C.GREEN)
         ai.addWidget(self._detected_lbl)
         ai.addStretch()
 
-        # ════════════════════════════════════════════
-        # GATEWAY TAB
-        # ════════════════════════════════════════════
+    def _build_gw_tab(self):
+        gw_cfg = self._load_gw_cfg()
         self._gw_panel = QWidget(); self._gw_panel.setStyleSheet("background:transparent;")
         gw = QVBoxLayout(self._gw_panel); gw.setContentsMargins(0,4,0,0); gw.setSpacing(4)
 
@@ -1252,25 +1259,25 @@ class SettingsOverlay(QWidget):
              ("allowed_users","Your numeric user IDs  (comma-separated)",False)],
             "Get token: Telegram → @BotFather → /newbot   |   Get ID: @userinfobot")
 
-        inner_lay.addWidget(_sep())
+        inner_lay.addWidget(self._sep())
         _platform_block("discord",   "DISCORD",
             [("token","Bot token from discord.com/developers",True),
              ("allowed_users","Your Discord user IDs  (comma-separated)",False)],
             "Portal → New App → Bot → Reset Token  |  Enable Message Content Intent")
 
-        inner_lay.addWidget(_sep())
+        inner_lay.addWidget(self._sep())
         _platform_block("slack",     "SLACK",
             [("token","Bot token  xoxb-…",True),
              ("api_key","App-level token  xapp-…",True),
              ("allowed_users","Slack member IDs  (comma-separated)",False)],
             "api.slack.com/apps → OAuth & Permissions  |  Settings → Socket Mode → xapp token")
 
-        inner_lay.addWidget(_sep())
+        inner_lay.addWidget(self._sep())
         _platform_block("whatsapp",  "WHATSAPP",
             [("allowed_users","Phone numbers  (no +, e.g. 15551234567)",False)],
             "Run 'octo gateway pair whatsapp' to scan QR code from your phone")
 
-        inner_lay.addWidget(_sep())
+        inner_lay.addWidget(self._sep())
         _platform_block("signal",    "SIGNAL",
             [("http_url","signal-cli daemon URL  (default http://127.0.0.1:8080)",False),
              ("account","Your phone number  (+1234567890)",False),
@@ -1296,13 +1303,8 @@ class SettingsOverlay(QWidget):
         gw_status_row.addWidget(start_gw)
         gw.addLayout(gw_status_row)
 
-        # ── stack both panels ──
-        root.addWidget(self._ai_panel,  stretch=1)
-        root.addWidget(self._gw_panel,  stretch=1)
-        self._gw_panel.hide()
-
-        # ── Save / Close ──
-        root.addWidget(_sep())
+    def _build_footer(self, root):
+        root.addWidget(self._sep())
         btn_row2 = QHBoxLayout(); btn_row2.setSpacing(8)
         close_btn = QPushButton("✕  Close")
         close_btn.setFont(QFont("Courier New", 9)); close_btn.setFixedHeight(32)
@@ -1322,6 +1324,7 @@ class SettingsOverlay(QWidget):
         root.addLayout(btn_row2)
 
     def _switch_stab(self, name: str):
+
         for n, b in self._stab_btns.items():
             b.setChecked(n == name)
         self._ai_panel.setVisible(name == "AI")
