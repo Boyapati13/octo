@@ -27,13 +27,84 @@ def _get_api_key() -> str:
     path = _get_base_dir() / "config" / "api_keys.json"
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)["gemini_api_key"]
-    
+
 def _get_desktop() -> Path:
     if _OS == "Linux":
         xdg = os.environ.get("XDG_DESKTOP_DIR", "")
         if xdg and Path(xdg).exists():
             return Path(xdg)
     return Path.home() / "Desktop"
+
+import ast
+
+class SecurityScanner(ast.NodeVisitor):
+    def __init__(self):
+        self.safe = True
+        self.reason = ""
+        self.allowed_nodes = {
+            ast.Module, ast.Expr, ast.Assign, ast.Name, ast.Load, ast.Store, ast.Del,
+            ast.Call, ast.Attribute, ast.Constant, ast.List, ast.Dict, ast.Tuple,
+            ast.Set, ast.If, ast.Compare, ast.BinOp, ast.UnaryOp, ast.BoolOp,
+            ast.For, ast.While, ast.Break, ast.Continue, ast.Pass,
+            ast.Subscript, ast.Slice, ast.ListComp, ast.DictComp,
+            ast.SetComp, ast.GeneratorExp, ast.comprehension,
+            ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE,
+            ast.Is, ast.IsNot, ast.In, ast.NotIn,
+            ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow,
+            ast.And, ast.Or, ast.Not, ast.Invert, ast.UAdd, ast.USub,
+            ast.Return, ast.FunctionDef, ast.arguments, ast.arg,
+            ast.FormattedValue, ast.JoinedStr,
+            ast.keyword, ast.alias,
+            ast.IfExp, ast.AugAssign
+        }
+
+    def generic_visit(self, node):
+        if not self.safe:
+            return
+        if type(node) not in self.allowed_nodes:
+            self.safe = False
+            self.reason = f"Disallowed AST node: {type(node).__name__}"
+            return
+        super().generic_visit(node)
+
+    def visit_Import(self, node):
+        self.safe = False
+        self.reason = "Import statements are not allowed."
+
+    def visit_ImportFrom(self, node):
+        self.safe = False
+        self.reason = "Import statements are not allowed."
+
+    def visit_Attribute(self, node):
+        if node.attr.startswith('__'):
+            self.safe = False
+            self.reason = f"Access to dunder attribute '{node.attr}' is restricted."
+            return
+        self.generic_visit(node)
+
+    def visit_Name(self, node):
+        if node.id.startswith('__') and node.id != '__builtins__':
+            self.safe = False
+            self.reason = f"Access to dunder name '{node.id}' is restricted."
+            return
+        self.generic_visit(node)
+
+    def visit_Call(self, node):
+        if isinstance(node.func, ast.Name) and node.func.id in {"getattr", "setattr", "delattr", "eval", "exec", "globals", "locals", "vars", "__import__"}:
+            self.safe = False
+            self.reason = f"Use of restricted function '{node.func.id}' is not allowed."
+            return
+        self.generic_visit(node)
+
+def is_safe_code(code: str) -> tuple[bool, str]:
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as e:
+        return False, f"Syntax error: {e}"
+
+    scanner = SecurityScanner()
+    scanner.visit(tree)
+    return scanner.safe, scanner.reason
 
 def _build_sandbox() -> dict:
     import time
@@ -43,7 +114,7 @@ def _build_sandbox() -> dict:
         "len": len, "str": str, "int": int, "float": float,
         "bool": bool, "list": list, "dict": dict, "tuple": tuple,
         "range": range, "enumerate": enumerate, "sorted": sorted,
-        "isinstance": isinstance, "hasattr": hasattr, "getattr": getattr,
+        "isinstance": isinstance,
         "max": max, "min": min, "sum": sum, "abs": abs,
         "zip": zip, "map": map, "filter": filter,
     }
@@ -57,7 +128,7 @@ def _build_sandbox() -> dict:
             "copytree":   shutil.copytree,
             "disk_usage": shutil.disk_usage,
         })(),
-        "os_path": os.path,  
+        "os_path": os.path,
     }
 
     if _PYAUTOGUI:
@@ -88,6 +159,12 @@ def _execute_generated_code(code: str, player=None) -> str:
     if code.startswith("```"):
         lines = code.split("\n")
         code  = "\n".join(lines[1:-1]).strip()
+
+    is_safe, reason = is_safe_code(code)
+    if not is_safe:
+        err_msg = f"Security error: Code execution blocked. Reason: {reason}"
+        print(f"[Desktop] {err_msg}")
+        return err_msg
 
     sandbox      = _build_sandbox()
     output_lines = []
@@ -169,7 +246,7 @@ def set_wallpaper(image_path: str) -> str:
                     Image.open(path).convert("RGB").save(bmp_path, "BMP")
                     path = bmp_path
                 except ImportError:
-                    pass 
+                    pass
             ctypes.windll.user32.SystemParametersInfoW(20, 0, str(path), 3)
             return f"Wallpaper set: {path.name}"
 
