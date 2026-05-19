@@ -274,3 +274,181 @@ def gateway_status() -> dict:
     """Return running status of all channels."""
     mgr = get_gateway()
     return mgr.status() if mgr else {}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Scheduler — in-process SQLite job store
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import sqlite3, uuid as _uuid, datetime as _dt
+
+_SCHED_DB = BASE_DIR / "config" / "scheduler.db"
+_SCHED_LOCK = threading.Lock()
+
+def _sched_con():
+    con = sqlite3.connect(str(_SCHED_DB), check_same_thread=False)
+    con.execute("""CREATE TABLE IF NOT EXISTS jobs (
+        id TEXT PRIMARY KEY, prompt TEXT NOT NULL, schedule TEXT NOT NULL,
+        label TEXT, enabled INTEGER DEFAULT 1, created_at TEXT
+    )""")
+    con.commit()
+    return con
+
+def create_scheduled(prompt: str, schedule: str, label: str = "") -> dict | None:
+    """Create a new scheduled job. Returns the job dict or None on failure."""
+    try:
+        _validate_cron(schedule)
+        jid = str(_uuid.uuid4())[:8]
+        now = _dt.datetime.now().isoformat()
+        with _SCHED_LOCK:
+            con = _sched_con()
+            con.execute("INSERT INTO jobs VALUES (?,?,?,?,1,?)",
+                        (jid, prompt, schedule, label or "", now))
+            con.commit(); con.close()
+        logger.info("[Scheduler] Created job %s: %s @ %s", jid, label or prompt[:30], schedule)
+        return {"id": jid, "prompt": prompt, "schedule": schedule,
+                "label": label, "enabled": True}
+    except Exception as e:
+        logger.error("[Scheduler] create_scheduled: %s", e)
+        return None
+
+# Alias used by main.py
+create_cron_job = create_scheduled
+
+def list_scheduled() -> list:
+    """Return all scheduled jobs."""
+    try:
+        with _SCHED_LOCK:
+            con = _sched_con()
+            rows = con.execute(
+                "SELECT id,prompt,schedule,label,enabled,created_at FROM jobs ORDER BY created_at DESC"
+            ).fetchall()
+            con.close()
+        return [{"id": r[0], "prompt": r[1], "schedule": r[2],
+                 "label": r[3], "enabled": bool(r[4]), "created_at": r[5]} for r in rows]
+    except Exception:
+        return []
+
+# Aliases used by ProjectWidget and ui.py
+list_cron_jobs = list_scheduled
+
+def delete_scheduled(job_id: str) -> None:
+    """Delete a scheduled job by ID."""
+    try:
+        with _SCHED_LOCK:
+            con = _sched_con()
+            con.execute("DELETE FROM jobs WHERE id=?", (job_id,))
+            con.commit(); con.close()
+        logger.info("[Scheduler] Deleted job %s", job_id)
+    except Exception as e:
+        logger.error("[Scheduler] delete: %s", e)
+
+def _validate_cron(expr: str):
+    """Raise ValueError if expr is not a valid 5-part cron expression."""
+    parts = expr.strip().split()
+    if len(parts) != 5:
+        raise ValueError(f"Invalid cron expression: {expr!r} (need 5 parts)")
+
+
+# ── Scheduler runner ──────────────────────────────────────────────────────────
+
+def start_scheduler(octo_speak: "Callable | None" = None) -> None:
+    """Start the background scheduler thread. Runs jobs via OCTO's native planner."""
+    threading.Thread(target=_scheduler_loop, args=(octo_speak,), daemon=True,
+                     name="octo-scheduler").start()
+    logger.info("[Scheduler] Background runner started")
+
+def _scheduler_loop(speak):
+    import time, re as _re
+    logger.info("[Scheduler] Runner active")
+    while True:
+        try:
+            now = _dt.datetime.now()
+            for job in list_scheduled():
+                if not job.get("enabled"):
+                    continue
+                if _cron_matches(job["schedule"], now):
+                    logger.info("[Scheduler] Firing job %s: %s", job["id"], job.get("label") or job["prompt"][:40])
+                    threading.Thread(target=_run_job, args=(job, speak), daemon=True).start()
+        except Exception as e:
+            logger.error("[Scheduler] Loop error: %s", e)
+        time.sleep(60 - _dt.datetime.now().second)  # align to next minute
+
+def _run_job(job: dict, speak):
+    goal = job.get("prompt", "")
+    try:
+        result = _native_fallback(goal, speak)
+        logger.info("[Scheduler] Job %s done: %s", job["id"], str(result)[:80])
+    except Exception as e:
+        logger.error("[Scheduler] Job %s failed: %s", job["id"], e)
+
+def _cron_matches(expr: str, now: "_dt.datetime") -> bool:
+    """Check if cron expression matches the current minute."""
+    try:
+        parts = expr.strip().split()
+        if len(parts) != 5:
+            return False
+        minute, hour, dom, month, dow = parts
+        return (
+            _cron_part(minute, now.minute) and
+            _cron_part(hour,   now.hour)   and
+            _cron_part(month,  now.month)  and
+            _cron_part(dom,    now.day)    and
+            _cron_part(dow,    now.weekday())
+        )
+    except Exception:
+        return False
+
+def _cron_part(expr: str, val: int) -> bool:
+    if expr == "*":
+        return True
+    if expr.startswith("*/"):
+        step = int(expr[2:])
+        return val % step == 0
+    if "-" in expr:
+        lo, hi = expr.split("-", 1)
+        return int(lo) <= val <= int(hi)
+    if "," in expr:
+        return val in {int(x) for x in expr.split(",")}
+    return int(expr) == val
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Skills — proxy to deerflow_bridge
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def list_skills() -> list:
+    """Return installed/available skills from DeerFlow."""
+    try:
+        from deerflow_bridge import list_local_skills
+        skills = list_local_skills()
+        return [{"name": s.get("name", s.get("id", "")),
+                 "description": s.get("description", ""),
+                 "id": s.get("id", "")} for s in skills]
+    except Exception:
+        return []
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Gateway config writer — called by UI on Save
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def write_gateway_config(data: dict) -> None:
+    """Persist gateway.json and hot-reload the channel manager if running."""
+    try:
+        GW_CFG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        GW_CFG_PATH.write_text(
+            __import__("json").dumps(data, indent=4), encoding="utf-8"
+        )
+        logger.info("[Gateway] Config written: %s platforms", len(data))
+    except Exception as e:
+        logger.error("[Gateway] write_gateway_config: %s", e)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Sync alias (legacy name used by old main.py schedule_task handler)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def sync_memory_to_hermes() -> None:
+    """Alias for sync_memory (legacy name)."""
+    sync_memory()
