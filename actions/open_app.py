@@ -83,7 +83,7 @@ def _launch_windows(app_name: str) -> bool:
         try:
             subprocess.Popen(
                 app_name,
-                shell=True,
+                shell=False,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
@@ -94,7 +94,7 @@ def _launch_windows(app_name: str) -> bool:
 
     if ":" in app_name:
         try:
-            subprocess.Popen(f"start {app_name}", shell=True)
+            subprocess.Popen(["cmd.exe", "/c", "start", "", app_name], shell=False)
             time.sleep(1.0)
             return True
         except Exception:
