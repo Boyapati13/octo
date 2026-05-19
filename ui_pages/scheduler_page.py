@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from PyQt6.QtCore import pyqtSignal, QTimer
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
 )
 from PyQt6.QtGui import QFont
 from .base import OctoPage, PRI, ACC2, GREEN, GREEN_D, RED, TEXT_MED, TEXT_DIM, BORDER, PANEL, WHITE
