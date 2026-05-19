@@ -1084,12 +1084,12 @@ class SettingsOverlay(QWidget):
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(data, indent=4), encoding="utf-8")
 
-    # ── build ─────────────────────────────────────────────────────────────────
-
     @staticmethod
-    def _lbl(txt, size=9, bold=False, color=C.PRI, align=Qt.AlignmentFlag.AlignLeft):
+    def _lbl(txt, size=9, bold=False, color=C.PRI,
+             align=Qt.AlignmentFlag.AlignLeft):
         w = QLabel(txt); w.setAlignment(align)
-        w.setFont(QFont("Courier New", size, QFont.Weight.Bold if bold else QFont.Weight.Normal))
+        w.setFont(QFont("Courier New", size,
+                        QFont.Weight.Bold if bold else QFont.Weight.Normal))
         w.setStyleSheet(f"color: {color}; background: transparent;")
         return w
 
@@ -1109,46 +1109,8 @@ class SettingsOverlay(QWidget):
             QLineEdit:focus {{border:1px solid {C.PRI};}}""")
         return f
 
-    def _build_ui(self):
-        root = QVBoxLayout(self)
-        root.setContentsMargins(24, 16, 24, 16)
-        root.setSpacing(6)
-
-        self._build_header_tabs(root)
-        self._build_ai_tab()
-        self._build_gw_tab()
-
-        # ── stack both panels ──
-        root.addWidget(self._ai_panel,  stretch=1)
-        root.addWidget(self._gw_panel,  stretch=1)
-        self._gw_panel.hide()
-
-        self._build_footer(root)
-
-    def _build_header_tabs(self, root):
-        _TAB_SS = f"""
-            QPushButton {{background:transparent;color:{C.TEXT_DIM};
-                border:1px solid {C.BORDER};border-radius:3px;
-                font-family:'Courier New';font-size:9px;font-weight:bold;padding:3px 10px;}}
-            QPushButton:checked {{background:{C.PRI_GHO};color:{C.PRI};border:1px solid {C.PRI};}}
-            QPushButton:hover:!checked {{color:{C.TEXT_MED};border:1px solid {C.BORDER_B};}}"""
-
-        root.addWidget(self._lbl("⚙  OCTO SETTINGS", 12, True, C.PRI, Qt.AlignmentFlag.AlignCenter))
-
-        tab_row = QHBoxLayout(); tab_row.setSpacing(4)
-        self._stab_btns: dict[str, QPushButton] = {}
-        for name in ["AI", "GATEWAY"]:
-            b = QPushButton(name); b.setCheckable(True)
-            b.setChecked(name == "AI"); b.setStyleSheet(_TAB_SS)
-            b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.clicked.connect(lambda _, n=name: self._switch_stab(n))
-            tab_row.addWidget(b); self._stab_btns[name] = b
-        tab_row.addStretch()
-        root.addLayout(tab_row)
-        root.addWidget(self._sep())
-
-    def _build_ai_tab(self):
-        cfg = self._cfg
+    # ── build ─────────────────────────────────────────────────────────────────
+    def _build_ai_panel(self, cfg: dict):
         self._ai_panel = QWidget(); self._ai_panel.setStyleSheet("background:transparent;")
         ai = QVBoxLayout(self._ai_panel); ai.setContentsMargins(0,4,0,0); ai.setSpacing(5)
 
@@ -1207,8 +1169,7 @@ class SettingsOverlay(QWidget):
         ai.addWidget(self._detected_lbl)
         ai.addStretch()
 
-    def _build_gw_tab(self):
-        gw_cfg = self._load_gw_cfg()
+    def _build_gw_panel(self, gw_cfg: dict):
         self._gw_panel = QWidget(); self._gw_panel.setStyleSheet("background:transparent;")
         gw = QVBoxLayout(self._gw_panel); gw.setContentsMargins(0,4,0,0); gw.setSpacing(4)
 
@@ -1303,7 +1264,34 @@ class SettingsOverlay(QWidget):
         gw_status_row.addWidget(start_gw)
         gw.addLayout(gw_status_row)
 
-    def _build_footer(self, root):
+    def _build_header_and_tabs(self, root: QVBoxLayout):
+        _TAB_SS = f"""
+            QPushButton {{background:transparent;color:{C.TEXT_DIM};
+                border:1px solid {C.BORDER};border-radius:3px;
+                font-family:'Courier New';font-size:9px;font-weight:bold;padding:3px 10px;}}
+            QPushButton:checked {{background:{C.PRI_GHO};color:{C.PRI};border:1px solid {C.PRI};}}
+            QPushButton:hover:!checked {{color:{C.TEXT_MED};border:1px solid {C.BORDER_B};}}"""
+
+        root.addWidget(self._lbl("⚙  OCTO SETTINGS", 12, True, C.PRI,
+                            Qt.AlignmentFlag.AlignCenter))
+
+        tab_row = QHBoxLayout(); tab_row.setSpacing(4)
+        self._stab_btns: dict[str, QPushButton] = {}
+        for name in ["AI", "GATEWAY"]:
+            b = QPushButton(name); b.setCheckable(True)
+            b.setChecked(name == "AI"); b.setStyleSheet(_TAB_SS)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.clicked.connect(lambda _, n=name: self._switch_stab(n))
+            tab_row.addWidget(b); self._stab_btns[name] = b
+        tab_row.addStretch()
+        root.addLayout(tab_row)
+        root.addWidget(self._sep())
+
+    def _build_footer(self, root: QVBoxLayout):
+        root.addWidget(self._ai_panel,  stretch=1)
+        root.addWidget(self._gw_panel,  stretch=1)
+        self._gw_panel.hide()
+
         root.addWidget(self._sep())
         btn_row2 = QHBoxLayout(); btn_row2.setSpacing(8)
         close_btn = QPushButton("✕  Close")
@@ -1323,8 +1311,23 @@ class SettingsOverlay(QWidget):
         btn_row2.addWidget(close_btn); btn_row2.addWidget(save_btn, stretch=1)
         root.addLayout(btn_row2)
 
-    def _switch_stab(self, name: str):
+    def _build_ui(self):
+        cfg    = self._cfg
+        gw_cfg = self._load_gw_cfg()
 
+        root = QVBoxLayout(self)
+        root.setContentsMargins(24, 16, 24, 16)
+        root.setSpacing(6)
+
+        self._build_header_and_tabs(root)
+
+        self._build_ai_panel(cfg)
+
+        self._build_gw_panel(gw_cfg)
+
+        self._build_footer(root)
+
+    def _switch_stab(self, name: str):
         for n, b in self._stab_btns.items():
             b.setChecked(n == name)
         self._ai_panel.setVisible(name == "AI")
