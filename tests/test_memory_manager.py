@@ -1,154 +1,121 @@
-import pytest
+import unittest
 from unittest.mock import patch
 from datetime import datetime
+import copy
 
-# Import the module to be tested
-from memory import memory_manager
+from memory.memory_manager import update_memory, MAX_VALUE_LENGTH
 
-@pytest.fixture
-def mock_datetime():
-    with patch("memory.memory_manager.datetime") as mock_dt:
-        mock_dt.now.return_value = datetime(2023, 10, 27)
-        yield mock_dt
-
-def test_update_memory_invalid_input():
-    with patch("memory.memory_manager.load_memory") as mock_load, \
-         patch("memory.memory_manager.save_memory") as mock_save:
-
-        mock_load.return_value = {"notes": {}}
-
-        # Test with None
-        result = memory_manager.update_memory(None)
-        assert result == {"notes": {}}
-        mock_save.assert_not_called()
-
-        # Test with empty dict
-        result = memory_manager.update_memory({})
-        assert result == {"notes": {}}
-        mock_save.assert_not_called()
-
-        # Test with invalid type (list)
-        result = memory_manager.update_memory(["not", "a", "dict"])
-        assert result == {"notes": {}}
-        mock_save.assert_not_called()
-
-def test_update_memory_new_entry(mock_datetime):
-    with patch("memory.memory_manager.load_memory") as mock_load, \
-         patch("memory.memory_manager.save_memory") as mock_save:
-
-        mock_load.return_value = {"notes": {}}
-
-        update = {"notes": {"color": "blue"}}
-        result = memory_manager.update_memory(update)
-
-        expected_memory = {
-            "notes": {
-                "color": {"value": "blue", "updated": "2023-10-27"}
-            }
+class TestUpdateMemory(unittest.TestCase):
+    def setUp(self):
+        # Initial state mock for memory
+        self.initial_memory = {
+            "identity": {"name": {"value": "Alice", "updated": "2023-01-01"}},
+            "preferences": {"color": {"value": "blue", "updated": "2023-01-01"}},
+            "projects": {},
+            "relationships": {},
+            "wishes": {},
+            "notes": {}
         }
 
-        assert result == expected_memory
-        mock_save.assert_called_once_with(expected_memory)
+        # Mocks setup
+        self.patcher_load = patch('memory.memory_manager.load_memory')
+        self.mock_load_memory = self.patcher_load.start()
+        self.mock_load_memory.side_effect = lambda: copy.deepcopy(self.initial_memory)
 
-def test_update_memory_existing_entry_new_value(mock_datetime):
-    with patch("memory.memory_manager.load_memory") as mock_load, \
-         patch("memory.memory_manager.save_memory") as mock_save:
+        self.patcher_save = patch('memory.memory_manager.save_memory')
+        self.mock_save_memory = self.patcher_save.start()
 
-        mock_load.return_value = {
-            "notes": {
-                "color": {"value": "red", "updated": "2023-10-26"}
-            }
-        }
+        # Patch datetime to freeze time, though we need to patch datetime in memory_manager
+        # since it's imported as `from datetime import datetime`.
+        # However, patching `memory.memory_manager.datetime` works when imported that way.
+        self.patcher_datetime = patch('memory.memory_manager.datetime')
+        self.mock_datetime = self.patcher_datetime.start()
 
-        update = {"notes": {"color": "blue"}}
-        result = memory_manager.update_memory(update)
+        # Configure mock_datetime.now() to return a specific mock object with a fixed strftime
+        self.mock_datetime.now.return_value.strftime.return_value = "2024-05-15"
 
-        expected_memory = {
-            "notes": {
-                "color": {"value": "blue", "updated": "2023-10-27"}
-            }
-        }
+    def tearDown(self):
+        self.patcher_load.stop()
+        self.patcher_save.stop()
+        self.patcher_datetime.stop()
 
-        assert result == expected_memory
-        mock_save.assert_called_once_with(expected_memory)
+    def test_invalid_updates(self):
+        # Testing None
+        result = update_memory(None)
+        self.assertEqual(result, self.initial_memory)
+        self.mock_save_memory.assert_not_called()
 
-def test_update_memory_existing_entry_same_value(mock_datetime):
-    with patch("memory.memory_manager.load_memory") as mock_load, \
-         patch("memory.memory_manager.save_memory") as mock_save:
+        # Testing empty dict
+        result = update_memory({})
+        self.assertEqual(result, self.initial_memory)
+        self.mock_save_memory.assert_not_called()
 
-        mock_load.return_value = {
-            "notes": {
-                "color": {"value": "red", "updated": "2023-10-26"}
-            }
-        }
+        # Testing list
+        result = update_memory(["invalid"])
+        self.assertEqual(result, self.initial_memory)
+        self.mock_save_memory.assert_not_called()
 
-        update = {"notes": {"color": "red"}}
-        result = memory_manager.update_memory(update)
+    def test_valid_update_new_key(self):
+        update = {"preferences": {"food": "pizza"}}
+        result = update_memory(update)
 
-        # Value is same, should not save
-        expected_memory = {
-            "notes": {
-                "color": {"value": "red", "updated": "2023-10-26"}
-            }
-        }
-        assert result == expected_memory
-        mock_save.assert_not_called()
+        expected_memory = copy.deepcopy(self.initial_memory)
+        expected_memory["preferences"]["food"] = {"value": "pizza", "updated": "2024-05-15"}
 
-def test_update_memory_recursive_merge(mock_datetime):
-    with patch("memory.memory_manager.load_memory") as mock_load, \
-         patch("memory.memory_manager.save_memory") as mock_save:
+        self.assertEqual(result, expected_memory)
+        self.mock_save_memory.assert_called_once_with(expected_memory)
 
-        mock_load.return_value = {
-            "preferences": {
-                "food": {"value": "pizza", "updated": "2023-10-26"}
-            }
-        }
+    def test_valid_update_existing_key(self):
+        update = {"identity": {"name": "Bob"}}
+        result = update_memory(update)
 
+        expected_memory = copy.deepcopy(self.initial_memory)
+        expected_memory["identity"]["name"] = {"value": "Bob", "updated": "2024-05-15"}
+
+        self.assertEqual(result, expected_memory)
+        self.mock_save_memory.assert_called_once_with(expected_memory)
+
+    def test_valid_update_no_change(self):
+        # Update with the exact same value shouldn't trigger save
+        update = {"identity": {"name": "Alice"}}
+        result = update_memory(update)
+
+        self.assertEqual(result, self.initial_memory)
+        self.mock_save_memory.assert_not_called()
+
+    def test_skip_empty_values(self):
         update = {
-            "preferences": {"drink": "water"},
-            "projects": {"ai": "learning"}
+            "preferences": {"food": None, "music": "   ", "movie": ""}
         }
-        result = memory_manager.update_memory(update)
+        result = update_memory(update)
 
-        expected_memory = {
-            "preferences": {
-                "food": {"value": "pizza", "updated": "2023-10-26"},
-                "drink": {"value": "water", "updated": "2023-10-27"}
-            },
-            "projects": {
-                "ai": {"value": "learning", "updated": "2023-10-27"}
-            }
-        }
+        # None and empty strings should be skipped, so no changes
+        self.assertEqual(result, self.initial_memory)
+        self.mock_save_memory.assert_not_called()
 
-        assert result == expected_memory
-        mock_save.assert_called_once_with(expected_memory)
+    def test_truncation(self):
+        long_string = "A" * (MAX_VALUE_LENGTH + 50)
+        expected_string = "A" * MAX_VALUE_LENGTH + "…"
 
-def test_update_memory_ignore_empty_or_none(mock_datetime):
-    with patch("memory.memory_manager.load_memory") as mock_load, \
-         patch("memory.memory_manager.save_memory") as mock_save:
+        update = {"notes": {"long_note": long_string}}
+        result = update_memory(update)
 
-        mock_load.return_value = {
-            "notes": {
-                "color": {"value": "red", "updated": "2023-10-26"}
-            }
-        }
+        expected_memory = copy.deepcopy(self.initial_memory)
+        expected_memory["notes"]["long_note"] = {"value": expected_string, "updated": "2024-05-15"}
 
-        # None and empty strings should be ignored
-        update = {
-            "notes": {
-                "shape": None,
-                "size": "",
-                "texture": "   ",
-                "color": "red"  # unchanged
-            }
-        }
-        result = memory_manager.update_memory(update)
+        self.assertEqual(result, expected_memory)
+        self.mock_save_memory.assert_called_once_with(expected_memory)
 
-        expected_memory = {
-            "notes": {
-                "color": {"value": "red", "updated": "2023-10-26"}
-            }
-        }
+    def test_nested_dictionary_value(self):
+        # Testing if passing {"value": "something"} directly works
+        update = {"projects": {"alpha": {"value": "running"}}}
+        result = update_memory(update)
 
-        assert result == expected_memory
-        mock_save.assert_not_called()
+        expected_memory = copy.deepcopy(self.initial_memory)
+        expected_memory["projects"]["alpha"] = {"value": "running", "updated": "2024-05-15"}
+
+        self.assertEqual(result, expected_memory)
+        self.mock_save_memory.assert_called_once_with(expected_memory)
+
+if __name__ == '__main__':
+    unittest.main()
