@@ -1,9 +1,11 @@
-﻿import subprocess
+import subprocess
 import sys
 import json
 import re
 import time
 from pathlib import Path
+from dataclasses import dataclass
+from typing import Optional, Callable, Any
 
 
 def get_base_dir():
@@ -16,6 +18,17 @@ API_CONFIG_PATH    = BASE_DIR / "config" / "api_keys.json"
 DESKTOP            = Path.home() / "Desktop"
 MAX_BUILD_ATTEMPTS = 3
 GEMINI_MODEL       = "gemini-2.5-flash"
+
+
+@dataclass
+class BuildArgs:
+    description: str
+    language: str
+    output_path: str
+    args: list
+    timeout: int
+    speak: Optional[Callable] = None
+    player: Optional[Any] = None
 
 
 def _get_api_key() -> str:
@@ -224,30 +237,30 @@ def _run_file(path: Path, args: list, timeout: int) -> str:
         return f"Execution error: {e}"
 
 
-def _build(description, language, output_path, args, timeout, speak=None, player=None) -> str:
-    if not description:
+def _build(build_args: BuildArgs) -> str:
+    if not build_args.description:
         return "Please describe what you want me to build, sir."
 
-    if player:
-        player.write_log("[Code] Build started...")
+    if build_args.player:
+        build_args.player.write_log("[Code] Build started...")
 
-    lang = language or "python"
+    lang = build_args.language or "python"
 
     try:
-        code, path = _write(description, lang, output_path, player)
+        code, path = _write(build_args.description, lang, build_args.output_path, build_args.player)
         print(f"[Code] ✅ Written: {path}")
     except Exception as e:
         msg = f"Could not write initial code: {e}"
-        if speak: speak(msg)
+        if build_args.speak: build_args.speak(msg)
         return msg
 
     last_output = ""
     for attempt in range(1, MAX_BUILD_ATTEMPTS + 1):
         print(f"[Code] 🔄 Attempt {attempt}/{MAX_BUILD_ATTEMPTS}")
-        if player:
-            player.write_log(f"[Code] Attempt {attempt}...")
+        if build_args.player:
+            build_args.player.write_log(f"[Code] Attempt {attempt}...")
 
-        last_output = _run_file(path, args, timeout)
+        last_output = _run_file(path, build_args.args, build_args.timeout)
 
         if not _has_error(last_output):
             msg = (
@@ -255,26 +268,26 @@ def _build(description, language, output_path, args, timeout, speak=None, player
                 f"The code is working after {attempt} attempt{'s' if attempt > 1 else ''}. "
                 f"Saved to {path}."
             )
-            if speak: speak(msg)
+            if build_args.speak: build_args.speak(msg)
             return f"{msg}\n\nOutput:\n{last_output}"
 
         print(f"[Code] ⚠️ Error on attempt {attempt}, fixing...")
-        if player:
-            player.write_log(f"[Code] Fixing (attempt {attempt})...")
+        if build_args.player:
+            build_args.player.write_log(f"[Code] Fixing (attempt {attempt})...")
 
         try:
-            code = _fix_code(code, last_output, description)
+            code = _fix_code(code, last_output, build_args.description)
             _save_file(path, code)
         except Exception as e:
             msg = f"Could not fix code on attempt {attempt}: {e}"
-            if speak: speak(msg)
+            if build_args.speak: build_args.speak(msg)
             return msg
 
     msg = (
         f"I was unable to build a working version after {MAX_BUILD_ATTEMPTS} attempts, sir. "
         f"The last error was: {last_output[:200]}"
     )
-    if speak: speak(msg)
+    if build_args.speak: build_args.speak(msg)
     return f"{msg}\n\nLast code saved to: {path}"
 
 def _write_action(description, language, output_path, player) -> str:
@@ -557,7 +570,16 @@ def code_helper(
         return _run_action(file_path, args, timeout, player)
 
     elif action == "build":
-        return _build(description, language, output_path, args, timeout, speak, player)
+        build_args = BuildArgs(
+            description=description,
+            language=language,
+            output_path=output_path,
+            args=args,
+            timeout=timeout,
+            speak=speak,
+            player=player
+        )
+        return _build(build_args)
 
     elif action == "optimize":
         return _optimize_action(file_path, code, language, output_path, player)
