@@ -1,190 +1,159 @@
-# OCTO-Pro — Personal AI × DeerFlow Super-Agent
+# 🐙 OCTO-Pro
 
-> **OCTO's voice, DeerFlow's brain.**
-> Real-time voice control of your computer, supercharged with long-horizon AI agents,
-> 20+ skill modules, sub-agent orchestration, and persistent cross-session memory.
+**The Ultimate Open-Source Personal AI Platform**  
+Voice · Vision · System Control · Deep Research · Multi-Platform Messaging
 
----
-
-## What's New in OCTO-Pro
-
-| Feature | OCTO (original) | OCTO-Pro |
-|---|---|---|
-| Voice interface | Gemini Live | Gemini Live (unchanged) |
-| Computer control | Yes | Yes |
-| Browser automation | Yes | Yes |
-| Web search | Basic | + DeerFlow deep crawl |
-| Research | Single-pass | **Multi-agent deep research** |
-| Skills catalog | None | **20+ DeerFlow skills** |
-| /find-skill voice command | No | **Yes** |
-| Sub-agents | No | DeerFlow ultra mode |
-| Sandboxed code execution | No | DeerFlow sandbox |
-| Long-term memory | OCTO local | OCTO + DeerFlow synced |
-| MCP server tools | No | via DeerFlow |
-| Slides / reports | No | via ppt-generation skill |
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue)](https://python.org)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)]()
 
 ---
 
-## Architecture
+## ✨ What is OCTO-Pro?
 
-```
-+-----------------------------------------------------------+
-|                    OCTO-Pro  (PyQt6)                      |
-|  +-------------+   +-------------------------------+      |
-|  |  Voice UI   |   |     Gemini Live API           |      |
-|  |  (mic/tts)  |<--|  real-time audio + tool calls |      |
-|  +------+------+   +-------------------------------+      |
-|         |                                                  |
-|  +------v--------------------------------------------------+
-|  |              Tool Dispatcher                            |
-|  |  open_app | browser_control | file_controller          |
-|  |  computer_settings | screen_process | ...              |
-|  |  +--------------------------------------------------+   |
-|  |  |        DeerFlow Bridge (NEW)                    |   |
-|  |  |  find_skill  *  list_skills                     |   |
-|  |  |  deep_research  *  deerflow_task                |   |
-|  |  +-------------------+------------------------------+   |
-|  +---------------------|---------------------------------+  |
-+------------------------|----------------------------------+
-                         | HTTP / SSE  (localhost:2026)
-+------------------------v----------------------------------+
-|                DeerFlow 2.0 Backend                       |
-|  +------------------------------------------------------+ |
-|  |  LangGraph Super-Agent Harness                       | |
-|  |  Lead Agent -> Sub-Agents (parallel)                 | |
-|  |  Skills: research, slides, code-docs, ...            | |
-|  |  Sandbox (Docker) * Memory * MCP servers             | |
-|  +------------------------------------------------------+ |
-+-----------------------------------------------------------+
-```
+OCTO-Pro is a fully local, open-source personal AI that hears, sees, and controls your computer — available 24/7 on every device you use. It combines the best of three powerful systems:
 
-OCTO-Pro always works standalone (DeerFlow is optional). When DeerFlow is running, it automatically routes capable tasks through it.
+| System | What it contributes |
+|---|---|
+| **OCTO** (core) | Real-time voice, screen vision, system control, UI |
+| **[NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent)** | Context compression, MCP tools, skills, extended engine |
+| **[bytedance/deer-flow](https://github.com/bytedance/deer-flow)** | LangGraph sub-agents, deep research, multi-channel gateway |
 
 ---
 
-## Quick Start
+## 🚀 Capabilities
 
-### 1. Clone & setup
+| Feature | Description |
+|---|---|
+| 🎙️ Real-time Voice | Ultra-low latency Gemini Live conversation |
+| 🖥️ System Control | Volume, brightness, WiFi, apps, files, windows |
+| 🧩 Autonomous Tasks | Multi-step planning + native execution |
+| 👁️ Visual Awareness | Screen capture + webcam vision |
+| 🧠 Persistent Memory | Remembers projects, preferences, context |
+| 🗜️ Context Compression | Hermes-style summarisation — never lose context in long sessions |
+| 🔌 MCP Tools | Connect filesystem, GitHub, Postgres, Brave Search, Puppeteer & more |
+| 🤖 Extended Engine | 70+ tools: terminal, git, docker, cron, code execution |
+| 🐮 DeerFlow Agent | Sub-agent orchestration, sandboxed code, skills catalog |
+| 📡 Multi-Channel | Telegram · Discord · Slack · WhatsApp — one agent everywhere |
+| ⚙️ Scheduler | Cron-style recurring tasks |
+
+---
+
+## ⚡ Quick Start
 
 ```bash
-git clone https://github.com/Boyapati13/octo.git octo-pro
-cd octo-pro
+git clone https://github.com/Boyapati13/octo.git
+cd octo
 pip install -r requirements.txt
-playwright install chromium
-
-# Setup DeerFlow integration (interactive wizard)
-python setup_deerflow.py
+playwright install
+python main.py
 ```
 
-### 2. Launch
-
-**Windows:**
-```
-start_octo_pro.bat
-```
-
-**macOS / Linux:**
+### Optional: DeerFlow backend (for deep research & sub-agents)
 ```bash
-./start_octo_pro.sh
-```
-
-This starts DeerFlow's backend (if configured) then OCTO-Pro's voice engine.
-
----
-
-## New Voice Commands
-
-### /find-skill - Discover capabilities
-
-| You say | OCTO does |
-|---|---|
-| "Find a skill for data analysis" | Searches skill catalog, reports matches |
-| "Is there a skill for making slides?" | Finds ppt-generation skill |
-| "What skills do you have?" | Lists all 20+ skills |
-| "Find a skill for academic research" | Finds systematic-literature-review skill |
-
-### Deep Research
-
-| You say | OCTO does |
-|---|---|
-| "Research quantum computing in depth" | DeerFlow multi-agent research -> saves report to Desktop |
-| "Give me a detailed report on gold market structure" | Full research with web crawl + synthesis |
-| "Summarize recent AI developments" | Deep research, summary format |
-
-### DeerFlow Tasks
-
-| You say | OCTO does |
-|---|---|
-| "Run a DeerFlow pro task: consulting report on EV market" | DeerFlow pro mode (planning + thinking) |
-| "Use ultra mode to build a data pipeline for CSV analysis" | DeerFlow ultra (full sub-agent orchestration) |
-| "Flash-mode: what is the current price of gold?" | Fast single-agent reply |
-
----
-
-## DeerFlow Skill Catalog
-
-| Skill | Description |
-|---|---|
-| deep-research | Multi-source research with sub-agents |
-| data-analysis | Analyze datasets, generate charts |
-| ppt-generation | Create PowerPoint slide decks |
-| image-generation | AI image generation workflows |
-| video-generation | Video creation workflows |
-| chart-visualization | Data visualization and charts |
-| newsletter-generation | Newsletter drafting and formatting |
-| podcast-generation | Podcast script + production |
-| code-documentation | Auto-generate code docs |
-| consulting-analysis | Business consulting reports |
-| academic-paper-review | Systematic literature review |
-| web-design-guidelines | Web UX/UI best practices |
-| github-deep-research | Deep dive into GitHub repos |
-| find-skills | Discover more skills at skills.sh |
-
----
-
-## DeerFlow Modes
-
-| Mode | Speed | Use When |
-|---|---|---|
-| flash | ~5s | Quick factual questions |
-| standard | ~15-30s | General tasks, drafting |
-| pro | ~30-60s | Reports, planning, analysis |
-| ultra | 1-5 min | Complex research, multi-output |
-
----
-
-## Fallback Behaviour
-
-OCTO-Pro always works without DeerFlow running:
-- find_skill searches the local bundled catalog
-- deep_research falls back to native web_search  
-- deerflow_task falls back to native agent_task
-- All original OCTO tools are unchanged
-
----
-
-## New Files Added
-
-```
-octo-pro/
-+-- deerflow_bridge.py         NEW: HTTP client for DeerFlow API
-+-- setup_deerflow.py          NEW: Integration setup wizard
-+-- start_octo_pro.bat         NEW: Windows unified launcher
-+-- start_octo_pro.sh          NEW: macOS/Linux unified launcher
-+-- actions/
-|   +-- deep_research.py       NEW: DeerFlow deep research action
-|   +-- deerflow_task.py       NEW: DeerFlow general task action
-+-- skills/
-|   +-- skill_manager.py       NEW: /find-skill engine
-+-- core/
-|   +-- prompt.txt             UPGRADED: DeerFlow-aware routing rules
-+-- readme.md                  UPGRADED: this file
-+-- requirements.txt           UPGRADED: +httpx, +sseclient-py
+git clone https://github.com/bytedance/deer-flow.git
+cd deer-flow && pip install -e backend
+uvicorn backend.app.gateway.app:app --port 2026
 ```
 
 ---
 
-## License
+## 🏗️ Architecture
 
-OCTO-Pro: Creative Commons BY-NC 4.0  
-DeerFlow: MIT License (bytedance/deer-flow)
+```
+OCTO-Pro
+├── main.py                  # Entry point (voice + UI)
+├── ui.py                    # PyQt6 main window
+├── ui_pages/                # Settings, MCP, Gateway, Skills, Memory, Scheduler
+│
+├── agent/
+│   ├── planner.py           # Task decomposition (LLM-driven)
+│   ├── executor.py          # Step execution + code generation
+│   ├── error_handler.py     # Retry/fix logic
+│   ├── task_queue.py        # Async task queue
+│   ├── hermes_bridge.py     # ① Hermes extended engine bridge
+│   ├── context_compressor.py# ② Context window compression (Hermes-inspired)
+│   └── mcp_bridge.py        # ③ MCP server client
+│
+├── channels/                # Multi-platform messaging (DeerFlow-inspired)
+│   ├── manager.py           # Channel orchestrator
+│   ├── telegram_channel.py
+│   ├── discord_channel.py
+│   ├── slack_channel.py
+│   └── whatsapp_channel.py
+│
+├── actions/                 # 15+ action modules
+│   ├── web_search.py        ├── browser_control.py
+│   ├── computer_settings.py ├── screen_processor.py
+│   ├── file_controller.py   ├── dev_agent.py
+│   ├── deerflow_task.py     ├── deep_research.py
+│   └── ...
+│
+├── memory/memory_manager.py # Persistent memory (JSON)
+├── skills/skill_manager.py  # DeerFlow skills discovery
+├── core/                    # LLM client + system prompt
+└── config/                  # API keys, gateway, MCP servers
+```
+
+---
+
+## 🔌 MCP Servers
+
+Connect any MCP server in **Settings → MCP** or edit `config/mcp_servers.json`:
+
+```json
+{
+  "servers": [
+    {
+      "name": "filesystem",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "~/Desktop"]
+    },
+    {
+      "name": "github",
+      "url": "https://mcp.github.com/sse",
+      "headers": {"Authorization": "Bearer ghp_..."}
+    }
+  ]
+}
+```
+
+---
+
+## 📡 Multi-Channel Gateway
+
+Configure in **Settings → Gateway** (or `config/gateway.json`):
+
+| Platform | Required credentials |
+|---|---|
+| **Telegram** | Bot token from @BotFather |
+| **Discord** | Bot token + Message Content Intent enabled |
+| **Slack** | xoxb- bot token + xapp- Socket Mode token |
+| **WhatsApp** | Meta Cloud API token + Phone Number ID |
+
+---
+
+## 📋 Requirements
+
+- Python 3.11 or 3.12
+- Windows 10/11, macOS, or Linux
+- Gemini API key (free tier works — gemini-2.5-flash)
+- Optional: Ollama for local models
+
+---
+
+## 🧠 Model Support
+
+- **Gemini 2.5 Flash** (default, free tier)
+- **Gemini Pro / Ultra** via API key
+- **Ollama** (local models: gemma4, llama3, mistral, etc.)
+- Any OpenAI-compatible endpoint
+
+---
+
+## 🤝 Credits
+
+Built on the shoulders of giants:
+- [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) — context engine, MCP, skills
+- [bytedance/deer-flow](https://github.com/bytedance/deer-flow) — LangGraph research agent, channels
+- [FatihMakes/Mark-XXXIX](https://github.com/FatihMakes/Mark-XXXIX) — core voice assistant foundation

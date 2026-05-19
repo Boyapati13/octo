@@ -1,24 +1,52 @@
+# ── Core AI / API ─────────────────────────────────────────────────────────────
 sounddevice
 google-genai
 google-generativeai
-pillow
 requests
-beautifulsoup4
-duckduckgo-search
-playwright
-pyautogui
-pyperclip
-pygetwindow
+httpx
+
+# ── UI ────────────────────────────────────────────────────────────────────────
+PyQt6
+
+# ── Vision / Screen ──────────────────────────────────────────────────────────
+pillow
+Pillow
 opencv-python
 numpy
 mss
-Pillow
+pyautogui
+
+# ── System / OS ──────────────────────────────────────────────────────────────
 psutil
+pyperclip
+pygetwindow
+send2trash
 comtypes; sys_platform == 'win32'
 pycaw; sys_platform == 'win32'
 win10toast; sys_platform == 'win32'
-send2trash
-youtube-transcript-api
 pywinauto; sys_platform == 'win32'
+
+# ── Web / Research ───────────────────────────────────────────────────────────
+beautifulsoup4
+duckduckgo-search
+playwright
+youtube-transcript-api
+
+# ── Documents / Files ────────────────────────────────────────────────────────
 python-pptx
-pyqt6
+
+# ── Messaging Channels (DeerFlow-inspired gateway) ───────────────────────────
+# Telegram — built-in via long-polling (no extra dep)
+discord.py; extra == "discord"          # pip install discord.py
+slack-sdk; extra == "slack"             # pip install slack-sdk
+
+# ── MCP (Model Context Protocol) — Hermes-inspired ──────────────────────────
+# Core MCP client (optional — enables MCP server connections)
+mcp; extra == "mcp"                     # pip install mcp
+
+# ── DeerFlow / LangGraph backend ─────────────────────────────────────────────
+# Install separately: cd deer-flow && pip install -e .
+# or: pip install langgraph langchain-core
+
+# ── Dev / Testing ────────────────────────────────────────────────────────────
+pytest; extra == "dev"
