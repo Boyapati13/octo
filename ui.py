@@ -14,7 +14,7 @@ from pathlib import Path
 import psutil
 
 from PyQt6.QtCore import (
-    QEasingCurve, QMimeData, QObject, QPointF, QRectF, QSize, Qt,
+    QEasingCurve, QMimeData, QObject, QPointF, QRectF, Qt,
     QTimer, QUrl, pyqtSignal,
 )
 from PyQt6.QtGui import (
