@@ -77,8 +77,8 @@ def _run_generated_code(description: str, speak: Callable | None = None) -> str:
 
         try:
             os.unlink(tmp_path)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[Executor] ⚠️ Failed to remove temporary file {tmp_path}: {e}")
 
         output = result.stdout.strip()
         error  = result.stderr.strip()
