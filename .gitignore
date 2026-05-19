@@ -17,3 +17,10 @@ deer-flow/
 readme_original.md
 __pycache__/
 *.pyc
+
+# Additional repos
+hermes-agent/
+Mark-XXXIX/
+free-claude-code/
+.fcc.pid
+/tmp/fcc.log

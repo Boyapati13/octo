@@ -227,6 +227,10 @@ def _add_engine_path():
     if engine_path not in sys.path and Path(engine_path).exists():
         sys.path.insert(0, engine_path)
 
+    hermes_agent_path = str(BASE_DIR / "hermes-agent")
+    if hermes_agent_path not in sys.path and Path(hermes_agent_path).exists():
+        sys.path.insert(0, hermes_agent_path)
+
 
 # ── Gateway integration ────────────────────────────────────────────────────────
 

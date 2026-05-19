@@ -21,11 +21,28 @@ echo "  ║   Personal AI + Super-Agent Harness             ║"
 echo "  ╚══════════════════════════════════════════════════╝"
 echo ""
 
-# ── Clone DeerFlow if needed ──────────────────────────────
+# ── Clone Additonal Repos ─────────────────────────────────
 if [[ ! -f "$DEERFLOW_DIR/Makefile" ]]; then
     warn "DeerFlow not found. Cloning..."
     git clone https://github.com/bytedance/deer-flow.git "$DEERFLOW_DIR" || {
         warn "Clone failed — OCTO will run without DeerFlow."; SKIP_DF=1
+    }
+fi
+if [[ ! -d "$SCRIPT_DIR/hermes-agent" ]]; then
+    log "Cloning Hermes Agent..."
+    git clone https://github.com/NousResearch/hermes-agent.git "$SCRIPT_DIR/hermes-agent"
+fi
+if [[ ! -d "$SCRIPT_DIR/Mark-XXXIX" ]]; then
+    log "Cloning Mark-XXXIX..."
+    git clone https://github.com/FatihMakes/Mark-XXXIX.git "$SCRIPT_DIR/Mark-XXXIX"
+fi
+if [[ ! -d "$SCRIPT_DIR/free-claude-code" ]]; then
+    log "Cloning Free Claude Code..."
+    git clone https://github.com/Alishahryar1/free-claude-code.git "$SCRIPT_DIR/free-claude-code" && {
+        log "Installing Free Claude Code..."
+        cd "$SCRIPT_DIR/free-claude-code"
+        pip install -e .
+        cd "$SCRIPT_DIR"
     }
 fi
 
@@ -50,6 +67,16 @@ if [[ -z "${SKIP_DF:-}" && -f "$DEERFLOW_DIR/Makefile" ]]; then
     cd "$SCRIPT_DIR"
 fi
 
+# ── Start Free Claude Code ────────────────────────────────
+if [[ -d "$SCRIPT_DIR/free-claude-code" ]]; then
+    log "Starting Free Claude Code server..."
+    cd "$SCRIPT_DIR/free-claude-code"
+    fcc-server &>/tmp/fcc.log &
+    FCC_PID=$!
+    echo $FCC_PID > "$SCRIPT_DIR/.fcc.pid"
+    cd "$SCRIPT_DIR"
+fi
+
 # ── Launch OCTO-Pro ───────────────────────────────────────
 log "Starting OCTO-Pro voice engine..."
 cd "$SCRIPT_DIR"
@@ -61,5 +88,11 @@ if [[ -f "$DEERFLOW_PID_FILE" ]]; then
     log "Stopping DeerFlow (PID $DF_PID)..."
     kill "$DF_PID" 2>/dev/null || true
     rm -f "$DEERFLOW_PID_FILE"
+fi
+if [[ -f "$SCRIPT_DIR/.fcc.pid" ]]; then
+    FCC_PID=$(cat "$SCRIPT_DIR/.fcc.pid")
+    log "Stopping Free Claude Code (PID $FCC_PID)..."
+    kill "$FCC_PID" 2>/dev/null || true
+    rm -f "$SCRIPT_DIR/.fcc.pid"
 fi
 log "Session ended."
