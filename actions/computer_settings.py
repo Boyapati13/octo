@@ -46,8 +46,8 @@ def _get_macos_wifi_interface() -> str:
                 for j in range(i, min(i + 4, len(lines))):
                     if lines[j].startswith("Device:"):
                         return lines[j].split(":", 1)[1].strip()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[Settings] Error getting Wi-Fi interface: {e}")
     return "en0" 
 
 def volume_up():
