@@ -2033,6 +2033,47 @@ class MainWindow(QMainWindow):
         self._clock_lbl.setText(time.strftime("%H:%M:%S"))
         self._date_lbl.setText(time.strftime("%a %d %b %Y"))
 
+    def _poll_services(self):
+        """Check proxy (8082) and gateway (2026) and update sidebar indicators."""
+        def _port_alive(port: int) -> bool:
+            import socket as _sock
+            try:
+                with _sock.create_connection(("127.0.0.1", port), timeout=0.4):
+                    return True
+            except OSError:
+                return False
+
+        proxy_up   = _port_alive(8082)
+        gateway_up = _port_alive(2026)
+
+        # Proxy label
+        if proxy_up:
+            self._svc_proxy_lbl.setText("● PROXY\nACTIVE")
+            self._svc_proxy_lbl.setStyleSheet(
+                f"color: {C.GREEN}; background: {C.PANEL2};"
+                f"border: 1px solid {C.GREEN_D}; border-radius: 3px; padding: 4px; font-weight: bold;"
+            )
+        else:
+            self._svc_proxy_lbl.setText("● PROXY\nOFFLINE")
+            self._svc_proxy_lbl.setStyleSheet(
+                f"color: {C.TEXT_DIM}; background: {C.PANEL2};"
+                f"border: 1px solid {C.BORDER_A}; border-radius: 3px; padding: 4px; font-weight: bold;"
+            )
+
+        # Gateway label
+        if gateway_up:
+            self._svc_gateway_lbl.setText("● GATEWAY\nACTIVE")
+            self._svc_gateway_lbl.setStyleSheet(
+                f"color: {C.PRI}; background: {C.PANEL2};"
+                f"border: 1px solid {C.PRI_DIM}; border-radius: 3px; padding: 4px; font-weight: bold;"
+            )
+        else:
+            self._svc_gateway_lbl.setText("● GATEWAY\nOFFLINE")
+            self._svc_gateway_lbl.setStyleSheet(
+                f"color: {C.TEXT_DIM}; background: {C.PANEL2};"
+                f"border: 1px solid {C.BORDER_A}; border-radius: 3px; padding: 4px; font-weight: bold;"
+            )
+
     def _navigate(self, page: str):
         """Switch center to named page, or HOME (HUD) if page == 'home'."""
         for name, btn in self._nav_btns.items():
@@ -2147,19 +2188,27 @@ class MainWindow(QMainWindow):
         lay.addWidget(info_panel)
         lay.addStretch()
 
-        for txt, col in [
-            ("AI CORE\nACTIVE",     C.GREEN),
-            ("SEC\nCLEARED",        C.PRI),
-            ("PROTOCOL\nXXXVIII",   C.TEXT_DIM),
+        # Live service status labels
+        self._svc_voice_lbl   = QLabel("● GEMINI\nLIVE")
+        self._svc_proxy_lbl   = QLabel("● PROXY\nOFFLINE")
+        self._svc_gateway_lbl = QLabel("● GATEWAY\nOFFLINE")
+        for lbl_w, init_col in [
+            (self._svc_voice_lbl,   C.GREEN),
+            (self._svc_proxy_lbl,   C.TEXT_DIM),
+            (self._svc_gateway_lbl, C.TEXT_DIM),
         ]:
-            lbl = QLabel(txt)
-            lbl.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
-            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl.setStyleSheet(
-                f"color: {col}; background: {C.PANEL2};"
+            lbl_w.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+            lbl_w.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl_w.setStyleSheet(
+                f"color: {init_col}; background: {C.PANEL2};"
                 f"border: 1px solid {C.BORDER_A}; border-radius: 3px; padding: 4px;"
             )
-            lay.addWidget(lbl)
+            lay.addWidget(lbl_w)
+
+        self._svc_tmr = QTimer(self)
+        self._svc_tmr.timeout.connect(self._poll_services)
+        self._svc_tmr.start(4000)
+        self._poll_services()
 
         return w
     def _build_right_panel(self) -> QWidget:
