@@ -1239,11 +1239,17 @@ class SettingsOverlay(QWidget):
             "Run 'octo gateway pair whatsapp' to scan QR code from your phone")
 
         inner_lay.addWidget(self._sep())
-        _platform_block("signal",    "SIGNAL",
-            [("http_url","signal-cli daemon URL  (default http://127.0.0.1:8080)",False),
-             ("account","Your phone number  (+1234567890)",False),
-             ("allowed_users","Allowed numbers  (+1234567890,+0987654321)",False)],
-            "Needs signal-cli + Java 17  |  Run: signal-cli --account +YOURNUM daemon --http 127.0.0.1:8080")
+        _platform_block("dingtalk",  "DINGTALK",
+            [("webhook","Group webhook URL  (from DingTalk robot settings)",True),
+             ("secret","Signing secret  (optional)",True)],
+            "DingTalk group → Settings → Robots → Add a robot → Copy webhook URL")
+
+        inner_lay.addWidget(self._sep())
+        _platform_block("feishu",    "FEISHU / LARK",
+            [("app_id","App ID  (from open.feishu.cn)",True),
+             ("app_secret","App Secret",True),
+             ("allowed_users","User open-IDs  (comma-separated)",False)],
+            "Feishu Open Platform → Create App → Event Subscription → configure bot")
 
         inner_lay.addStretch()
         scroll_w.setWidget(inner)
@@ -2241,48 +2247,19 @@ class MainWindow(QMainWindow):
             }}
         """
 
+        # ── LOG panel — always visible ──
         self._active_tab = "LOG"
         self._tab_btns: dict[str, QPushButton] = {}
-        tab_row = QHBoxLayout(); tab_row.setSpacing(3)
-        for name, tip in [("LOG", "Activity Log"), ("CHAT", "Text Chat"),
-                           ("CODE", "Code Assistant"), ("PROJ", "Project Tracker")]:
-            btn = QPushButton(name)
-            btn.setCheckable(True)
-            btn.setChecked(name == "LOG")
-            btn.setFixedHeight(22)
-            btn.setToolTip(tip)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setStyleSheet(_TAB_SS)
-            btn.clicked.connect(lambda _, n=name: self._switch_tab(n))
-            tab_row.addWidget(btn)
-            self._tab_btns[name] = btn
-        lay.addLayout(tab_row)
+        log_hdr = QHBoxLayout()
+        log_title = QLabel("ACTIVITY LOG")
+        log_title.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        log_title.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+        log_hdr.addWidget(log_title)
+        log_hdr.addStretch()
+        lay.addLayout(log_hdr)
 
-        # ── LOG panel ──
         self._log = LogWidget()
         lay.addWidget(self._log, stretch=1)
-
-        # ── CHAT panel ──
-        self._chat_widget = ChatWidget(
-            system="You are OCTO, an intelligent AI assistant. Be concise, helpful, and direct."
-        )
-        self._chat_widget.hide()
-        lay.addWidget(self._chat_widget, stretch=1)
-
-        # ── CODE panel ──
-        self._code_widget = ChatWidget(
-            system=(
-                "You are OCTO, an expert code assistant. Help write, review, explain, and debug code. "
-                "Always wrap code in triple backticks with the language name. Be concise."
-            )
-        )
-        self._code_widget.hide()
-        lay.addWidget(self._code_widget, stretch=1)
-
-        # ── PROJ panel ──
-        self._proj_widget = ProjectWidget()
-        self._proj_widget.hide()
-        lay.addWidget(self._proj_widget, stretch=1)
 
         sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet(f"color: {C.BORDER}; margin: 2px 0;")
@@ -2331,21 +2308,8 @@ class MainWindow(QMainWindow):
         return w
 
     def _switch_tab(self, name: str):
-        self._active_tab = name
-        for n, btn in self._tab_btns.items():
-            btn.setChecked(n == name)
-        self._log.setVisible(name == "LOG")
-        self._chat_widget.setVisible(name == "CHAT")
-        self._code_widget.setVisible(name == "CODE")
-        self._proj_widget.setVisible(name == "PROJ")
-        hints = {
-            "LOG":  "Type a command or question...",
-            "CHAT": "Chat with OCTO...",
-            "CODE": "Ask about code...",
-            "PROJ": "",
-        }
-        self._input.setPlaceholderText(hints.get(name, ""))
-        self._input.setEnabled(name != "PROJ")
+        """No-op placeholder — tabs removed, only LOG panel active."""
+        pass
 
     def _build_input_row(self) -> QHBoxLayout:
         row = QHBoxLayout(); row.setSpacing(5)
@@ -2447,15 +2411,9 @@ class MainWindow(QMainWindow):
         txt = self._input.text().strip()
         if not txt: return
         self._input.clear()
-        tab = getattr(self, "_active_tab", "LOG")
-        if tab == "CHAT":
-            self._chat_widget.send(txt)
-        elif tab == "CODE":
-            self._code_widget.send(txt)
-        else:
-            self._log.append_log(f"You: {txt}")
-            if self.on_text_command:
-                threading.Thread(target=self.on_text_command, args=(txt,), daemon=True).start()
+        self._log.append_log(f"You: {txt}")
+        if self.on_text_command:
+            threading.Thread(target=self.on_text_command, args=(txt,), daemon=True).start()
 
     def _apply_state(self, state: str):
         self.hud.state    = state
