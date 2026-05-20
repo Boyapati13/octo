@@ -1,4 +1,6 @@
-from .app import app, create_app
-from .config import GatewayConfig, get_gateway_config
+"""
+OCTO-Pro embedded DeerFlow gateway package.
 
-__all__ = ["app", "create_app", "GatewayConfig", "get_gateway_config"]
+All 'from gateway.*' imports have been rewritten to 'from gateway.*'
+so no runtime path aliasing is needed here.
+"""

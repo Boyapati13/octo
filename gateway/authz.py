@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
 from fastapi import HTTPException, Request
 
 if TYPE_CHECKING:
-    from app.gateway.auth.models import User
+    from gateway.auth.models import User
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -134,7 +134,7 @@ async def _authenticate(request: Request) -> AuthContext:
     Delegates to deps.get_optional_user_from_request() for the JWT→User pipeline.
     Returns AuthContext with user=None for anonymous requests.
     """
-    from app.gateway.deps import get_optional_user_from_request
+    from gateway.deps import get_optional_user_from_request
 
     user = await get_optional_user_from_request(request)
     if user is None:
@@ -280,7 +280,7 @@ def require_permission(
                 if thread_id is None:
                     raise ValueError("require_permission with owner_check=True requires 'thread_id' parameter")
 
-                from app.gateway.deps import get_thread_store
+                from gateway.deps import get_thread_store
 
                 thread_store = get_thread_store(request)
                 allowed = await thread_store.check_access(

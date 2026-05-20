@@ -20,9 +20,9 @@ from fastapi import APIRouter, HTTPException, Request
 from langgraph.checkpoint.base import empty_checkpoint
 from pydantic import BaseModel, Field, field_validator
 
-from app.gateway.authz import require_permission
-from app.gateway.deps import get_checkpointer
-from app.gateway.utils import sanitize_log_param
+from gateway.authz import require_permission
+from gateway.deps import get_checkpointer
+from gateway.utils import sanitize_log_param
 from deerflow.config.paths import Paths, get_paths
 from deerflow.runtime import serialize_channel_values
 from deerflow.runtime.user_context import get_effective_user_id
@@ -218,7 +218,7 @@ async def delete_thread_data(thread_id: str, request: Request) -> ThreadDeleteRe
     and removes the thread_meta row from the configured ThreadMetaStore
     (sqlite or memory).
     """
-    from app.gateway.deps import get_thread_store
+    from gateway.deps import get_thread_store
 
     # Clean local filesystem
     response = _delete_thread_data(thread_id, user_id=get_effective_user_id())
@@ -251,7 +251,7 @@ async def create_thread(body: ThreadCreateRequest, request: Request) -> ThreadRe
     and an empty checkpoint (so state endpoints work immediately).
     Idempotent: returns the existing record when ``thread_id`` already exists.
     """
-    from app.gateway.deps import get_thread_store
+    from gateway.deps import get_thread_store
 
     checkpointer = get_checkpointer(request)
     thread_store = get_thread_store(request)
@@ -315,7 +315,7 @@ async def search_threads(body: ThreadSearchRequest, request: Request) -> list[Th
     Delegates to the configured ThreadMetaStore implementation
     (SQL-backed for sqlite/postgres, Store-backed for memory mode).
     """
-    from app.gateway.deps import get_thread_store
+    from gateway.deps import get_thread_store
     from deerflow.persistence.thread_meta import InvalidMetadataFilterError
 
     repo = get_thread_store(request)
@@ -349,7 +349,7 @@ async def search_threads(body: ThreadSearchRequest, request: Request) -> list[Th
 @require_permission("threads", "write", owner_check=True, require_existing=True)
 async def patch_thread(thread_id: str, body: ThreadPatchRequest, request: Request) -> ThreadResponse:
     """Merge metadata into a thread record."""
-    from app.gateway.deps import get_thread_store
+    from gateway.deps import get_thread_store
 
     thread_store = get_thread_store(request)
     record = await thread_store.get(thread_id)
@@ -383,7 +383,7 @@ async def get_thread(thread_id: str, request: Request) -> ThreadResponse:
     execution status from the checkpointer.  Falls back to the checkpointer
     alone for threads that pre-date ThreadMetaStore adoption (backward compat).
     """
-    from app.gateway.deps import get_thread_store
+    from gateway.deps import get_thread_store
 
     thread_store = get_thread_store(request)
     checkpointer = get_checkpointer(request)
@@ -494,7 +494,7 @@ async def update_thread_state(thread_id: str, body: ThreadStateUpdateRequest, re
     ThreadMetaStore abstraction so that ``/threads/search`` reflects the
     change immediately in both sqlite and memory backends.
     """
-    from app.gateway.deps import get_thread_store
+    from gateway.deps import get_thread_store
 
     checkpointer = get_checkpointer(request)
     thread_store = get_thread_store(request)

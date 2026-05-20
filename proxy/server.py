@@ -1,3 +1,6 @@
+# NOTE: This file is NOT used by the OCTO monolith.
+# Root server.py imports proxy.app directly. This file is kept for reference only.
+
 """
 Claude Code Proxy - Entry Point
 

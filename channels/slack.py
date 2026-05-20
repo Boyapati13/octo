@@ -8,8 +8,8 @@ from typing import Any
 
 from markdown_to_mrkdwn import SlackMarkdownConverter
 
-from app.channels.base import Channel
-from app.channels.message_bus import InboundMessageType, MessageBus, OutboundMessage, ResolvedAttachment
+from channels.base import Channel
+from channels.message_bus import InboundMessageType, MessageBus, OutboundMessage, ResolvedAttachment
 
 logger = logging.getLogger(__name__)
 

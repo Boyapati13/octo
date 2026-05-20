@@ -16,9 +16,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp
 
-from app.gateway.auth.errors import AuthErrorCode, AuthErrorResponse
-from app.gateway.authz import _ALL_PERMISSIONS, AuthContext
-from app.gateway.internal_auth import INTERNAL_AUTH_HEADER_NAME, get_internal_user, is_valid_internal_auth_token
+from gateway.auth.errors import AuthErrorCode, AuthErrorResponse
+from gateway.authz import _ALL_PERMISSIONS, AuthContext
+from gateway.internal_auth import INTERNAL_AUTH_HEADER_NAME, get_internal_user, is_valid_internal_auth_token
 from deerflow.runtime.user_context import reset_current_user, set_current_user
 
 # Paths that never require authentication.
@@ -103,7 +103,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # propagate from AuthErrorCode, not get flattened into one
         # generic code. BaseHTTPMiddleware doesn't let HTTPException
         # bubble up, so we catch and render it as JSONResponse here.
-        from app.gateway.deps import get_current_user_from_request
+        from gateway.deps import get_current_user_from_request
 
         if internal_user is not None:
             user = internal_user

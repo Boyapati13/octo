@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 
-from app.gateway.auth.models import User
+from gateway.auth.models import User
 
 
 class UserNotFoundError(LookupError):

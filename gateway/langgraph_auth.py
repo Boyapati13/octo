@@ -18,9 +18,9 @@ import secrets
 
 from langgraph_sdk import Auth
 
-from app.gateway.auth.errors import TokenError
-from app.gateway.auth.jwt import decode_token
-from app.gateway.deps import get_local_provider
+from gateway.auth.errors import TokenError
+from gateway.auth.jwt import decode_token
+from gateway.deps import get_local_provider
 
 auth = Auth()
 

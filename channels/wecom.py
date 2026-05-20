@@ -7,8 +7,8 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
-from app.channels.base import Channel
-from app.channels.message_bus import (
+from channels.base import Channel
+from channels.message_bus import (
     InboundMessageType,
     MessageBus,
     OutboundMessage,

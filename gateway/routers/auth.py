@@ -10,14 +10,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from app.gateway.auth import (
+from gateway.auth import (
     UserResponse,
     create_access_token,
 )
-from app.gateway.auth.config import get_auth_config
-from app.gateway.auth.errors import AuthErrorCode, AuthErrorResponse
-from app.gateway.csrf_middleware import is_secure_request
-from app.gateway.deps import get_current_user_from_request, get_local_provider
+from gateway.auth.config import get_auth_config
+from gateway.auth.errors import AuthErrorCode, AuthErrorResponse
+from gateway.csrf_middleware import is_secure_request
+from gateway.deps import get_current_user_from_request, get_local_provider
 
 logger = logging.getLogger(__name__)
 
@@ -340,7 +340,7 @@ async def change_password(request: Request, response: Response, body: ChangePass
     - Always increments token_version to invalidate old sessions
     - Re-issues session cookie with new token_version
     """
-    from app.gateway.auth.password import hash_password_async, verify_password_async
+    from gateway.auth.password import hash_password_async, verify_password_async
 
     user = await get_current_user_from_request(request)
 

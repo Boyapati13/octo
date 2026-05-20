@@ -248,3 +248,9 @@ def send_via_gateway(channel: str, user_id: str, text: str) -> None:
 def gateway_status() -> dict:
     mgr = get_gateway()
     return mgr.status() if mgr else {}
+
+
+# ── Backward-compat aliases ───────────────────────────────────────────────────
+# task_queue.py calls these names — map them to the new functions above.
+should_use_hermes = should_use_extended
+run_with_hermes   = run_extended

@@ -6,7 +6,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any
 
-from app.channels.message_bus import InboundMessage, InboundMessageType, MessageBus, OutboundMessage, ResolvedAttachment
+from channels.message_bus import InboundMessage, InboundMessageType, MessageBus, OutboundMessage, ResolvedAttachment
 
 logger = logging.getLogger(__name__)
 
@@ -128,3 +128,9 @@ class Channel(ABC):
             The (possibly modified) InboundMessage, with text and/or files updated as needed.
         """
         return msg
+
+
+# ── Compatibility alias ────────────────────────────────────────────────────────
+# Old OCTO stubs (discord_channel.py, telegram_channel.py, etc.) import BaseChannel.
+# The DeerFlow version is named Channel — export both.
+BaseChannel = Channel

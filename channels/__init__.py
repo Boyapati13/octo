@@ -1,16 +1,13 @@
-"""IM Channel integration for DeerFlow.
-
-Provides a pluggable channel system that connects external messaging platforms
-(Feishu/Lark, Slack, Telegram) to the DeerFlow agent via the ChannelManager,
-which uses ``langgraph-sdk`` to communicate with Gateway's LangGraph-compatible API.
 """
+OCTO-Pro channels package.
 
-from app.channels.base import Channel
-from app.channels.message_bus import InboundMessage, MessageBus, OutboundMessage
+All 'from channels.*' imports have been rewritten to 'from channels.*'
+so no runtime path aliasing is needed here.
+"""
+from channels.base        import Channel, BaseChannel           # noqa: F401
+from channels.message_bus import InboundMessage, MessageBus, OutboundMessage  # noqa: F401
 
 __all__ = [
-    "Channel",
-    "InboundMessage",
-    "MessageBus",
-    "OutboundMessage",
+    "Channel", "BaseChannel",
+    "InboundMessage", "MessageBus", "OutboundMessage",
 ]

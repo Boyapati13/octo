@@ -25,7 +25,7 @@ class ChannelRestartResponse(BaseModel):
 @router.get("/", response_model=ChannelStatusResponse)
 async def get_channels_status() -> ChannelStatusResponse:
     """Get the status of all IM channels."""
-    from app.channels.service import get_channel_service
+    from channels.service import get_channel_service
 
     service = get_channel_service()
     if service is None:
@@ -37,7 +37,7 @@ async def get_channels_status() -> ChannelStatusResponse:
 @router.post("/{name}/restart", response_model=ChannelRestartResponse)
 async def restart_channel(name: str) -> ChannelRestartResponse:
     """Restart a specific IM channel."""
-    from app.channels.service import get_channel_service
+    from channels.service import get_channel_service
 
     service = get_channel_service()
     if service is None:

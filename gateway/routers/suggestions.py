@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, Request
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from app.gateway.authz import require_permission
-from app.gateway.deps import get_config
+from gateway.authz import require_permission
+from gateway.deps import get_config
 from deerflow.config.app_config import AppConfig
 from deerflow.models import create_chat_model
 

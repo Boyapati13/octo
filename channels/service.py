@@ -6,10 +6,10 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any
 
-from app.channels.base import Channel
-from app.channels.manager import DEFAULT_GATEWAY_URL, DEFAULT_LANGGRAPH_URL, ChannelManager
-from app.channels.message_bus import MessageBus
-from app.channels.store import ChannelStore
+from channels.base import Channel
+from channels.manager import DEFAULT_GATEWAY_URL, DEFAULT_LANGGRAPH_URL, ChannelManager
+from channels.message_bus import MessageBus
+from channels.store import ChannelStore
 
 logger = logging.getLogger(__name__)
 

@@ -13,9 +13,9 @@ from typing import Any
 
 import httpx
 
-from app.channels.base import Channel
-from app.channels.commands import KNOWN_CHANNEL_COMMANDS
-from app.channels.message_bus import InboundMessage, InboundMessageType, MessageBus, OutboundMessage, ResolvedAttachment
+from channels.base import Channel
+from channels.commands import KNOWN_CHANNEL_COMMANDS
+from channels.message_bus import InboundMessage, InboundMessageType, MessageBus, OutboundMessage, ResolvedAttachment
 
 logger = logging.getLogger(__name__)
 

@@ -17,8 +17,8 @@ from typing import Any
 from fastapi import HTTPException, Request
 from langchain_core.messages import HumanMessage
 
-from app.gateway.deps import get_run_context, get_run_manager, get_stream_bridge
-from app.gateway.utils import sanitize_log_param
+from gateway.deps import get_run_context, get_run_manager, get_stream_bridge
+from gateway.utils import sanitize_log_param
 from deerflow.config.app_config import get_app_config
 from deerflow.runtime import (
     END_SENTINEL,

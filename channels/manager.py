@@ -14,11 +14,11 @@ from typing import Any
 import httpx
 from langgraph_sdk.errors import ConflictError
 
-from app.channels.commands import KNOWN_CHANNEL_COMMANDS
-from app.channels.message_bus import InboundMessage, InboundMessageType, MessageBus, OutboundMessage, ResolvedAttachment
-from app.channels.store import ChannelStore
-from app.gateway.csrf_middleware import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, generate_csrf_token
-from app.gateway.internal_auth import create_internal_auth_headers
+from channels.commands import KNOWN_CHANNEL_COMMANDS
+from channels.message_bus import InboundMessage, InboundMessageType, MessageBus, OutboundMessage, ResolvedAttachment
+from channels.store import ChannelStore
+from gateway.csrf_middleware import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, generate_csrf_token
+from gateway.internal_auth import create_internal_auth_headers
 from deerflow.runtime.user_context import get_effective_user_id
 
 logger = logging.getLogger(__name__)

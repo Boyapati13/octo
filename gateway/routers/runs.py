@@ -14,10 +14,10 @@ import uuid
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from app.gateway.authz import require_permission
-from app.gateway.deps import get_checkpointer, get_feedback_repo, get_run_event_store, get_run_manager, get_run_store, get_stream_bridge
-from app.gateway.routers.thread_runs import RunCreateRequest
-from app.gateway.services import sse_consumer, start_run
+from gateway.authz import require_permission
+from gateway.deps import get_checkpointer, get_feedback_repo, get_run_event_store, get_run_manager, get_run_store, get_stream_bridge
+from gateway.routers.thread_runs import RunCreateRequest
+from gateway.services import sse_consumer, start_run
 from deerflow.runtime import serialize_channel_values
 
 logger = logging.getLogger(__name__)

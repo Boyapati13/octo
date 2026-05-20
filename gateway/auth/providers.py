@@ -21,4 +21,4 @@ class AuthProvider(ABC):
 
 
 # Import User at runtime to avoid circular imports
-from app.gateway.auth.models import User  # noqa: E402
+from gateway.auth.models import User  # noqa: E402

@@ -12,8 +12,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from app.gateway.authz import require_permission
-from app.gateway.deps import get_current_user, get_feedback_repo, get_run_store
+from gateway.authz import require_permission
+from gateway.deps import get_current_user, get_feedback_repo, get_run_store
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/threads", tags=["feedback"])

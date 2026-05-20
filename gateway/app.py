@@ -6,11 +6,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.gateway.auth_middleware import AuthMiddleware
-from app.gateway.config import get_gateway_config
-from app.gateway.csrf_middleware import CSRFMiddleware, get_configured_cors_origins
-from app.gateway.deps import langgraph_runtime
-from app.gateway.routers import (
+from gateway.auth_middleware import AuthMiddleware
+from gateway.config import get_gateway_config
+from gateway.csrf_middleware import CSRFMiddleware, get_configured_cors_origins
+from gateway.deps import langgraph_runtime
+from gateway.routers import (
     agents,
     artifacts,
     assistants_compat,
@@ -71,7 +71,7 @@ async def _ensure_admin_user(app: FastAPI) -> None:
     """
     from sqlalchemy import select
 
-    from app.gateway.deps import get_local_provider
+    from gateway.deps import get_local_provider
     from deerflow.persistence.engine import get_session_factory
     from deerflow.persistence.user.model import UserRow
 
@@ -183,7 +183,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         # Start IM channel service if any channels are configured
         try:
-            from app.channels.service import start_channel_service
+            from channels.service import start_channel_service
 
             channel_service = await start_channel_service(app.state.config)
             logger.info("Channel service started: %s", channel_service.get_status())
@@ -194,7 +194,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         # Stop channel service on shutdown (bounded to prevent worker hang)
         try:
-            from app.channels.service import stop_channel_service
+            from channels.service import stop_channel_service
 
             await asyncio.wait_for(
                 stop_channel_service(),

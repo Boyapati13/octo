@@ -18,9 +18,9 @@ import sys
 
 from sqlalchemy import select
 
-from app.gateway.auth.credential_file import write_initial_credentials
-from app.gateway.auth.password import hash_password
-from app.gateway.auth.repositories.sqlite import SQLiteUserRepository
+from gateway.auth.credential_file import write_initial_credentials
+from gateway.auth.password import hash_password
+from gateway.auth.repositories.sqlite import SQLiteUserRepository
 from deerflow.persistence.user.model import UserRow
 
 

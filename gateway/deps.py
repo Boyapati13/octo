@@ -22,8 +22,8 @@ from deerflow.runtime.events.store.base import RunEventStore
 from deerflow.runtime.runs.store.base import RunStore
 
 if TYPE_CHECKING:
-    from app.gateway.auth.local_provider import LocalAuthProvider
-    from app.gateway.auth.repositories.sqlite import SQLiteUserRepository
+    from gateway.auth.local_provider import LocalAuthProvider
+    from gateway.auth.repositories.sqlite import SQLiteUserRepository
     from deerflow.persistence.thread_meta.base import ThreadMetaStore
 
 
@@ -169,7 +169,7 @@ def get_local_provider() -> LocalAuthProvider:
     """
     global _cached_local_provider, _cached_repo
     if _cached_repo is None:
-        from app.gateway.auth.repositories.sqlite import SQLiteUserRepository
+        from gateway.auth.repositories.sqlite import SQLiteUserRepository
         from deerflow.persistence.engine import get_session_factory
 
         sf = get_session_factory()
@@ -177,7 +177,7 @@ def get_local_provider() -> LocalAuthProvider:
             raise RuntimeError("get_local_provider() called before init_engine_from_config(); cannot access users table")
         _cached_repo = SQLiteUserRepository(sf)
     if _cached_local_provider is None:
-        from app.gateway.auth.local_provider import LocalAuthProvider
+        from gateway.auth.local_provider import LocalAuthProvider
 
         _cached_local_provider = LocalAuthProvider(repository=_cached_repo)
     return _cached_local_provider
@@ -188,8 +188,8 @@ async def get_current_user_from_request(request: Request):
 
     Raises HTTPException 401 if not authenticated.
     """
-    from app.gateway.auth import decode_token
-    from app.gateway.auth.errors import AuthErrorCode, AuthErrorResponse, TokenError, token_error_to_code
+    from gateway.auth import decode_token
+    from gateway.auth.errors import AuthErrorCode, AuthErrorResponse, TokenError, token_error_to_code
 
     access_token = request.cookies.get("access_token")
     if not access_token:
