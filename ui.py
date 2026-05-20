@@ -1915,54 +1915,8 @@ class MainWindow(QMainWindow):
             )
 
     def _update_metrics(self):
-        snap = _metrics.snapshot()
-
-        # CPU
-        cpu = snap["cpu"]
-        self._bar_cpu.set_value(cpu, f"{cpu:.0f}%")
-
-        # MEM
-        mem = snap["mem"]
-        self._bar_mem.set_value(mem, f"{mem:.0f}%")
-
-        # NET
-        net = snap["net"]
-        if net < 1.0:
-            net_str = f"{net*1024:.0f}KB/s"
-        else:
-            net_str = f"{net:.1f}MB/s"
-        net_pct = min(100, net * 10)  # 10 MB/s = %100
-        self._bar_net.set_value(net_pct, net_str)
-
-        # GPU
-        gpu = snap["gpu"]
-        if gpu >= 0:
-            self._bar_gpu.set_value(gpu, f"{gpu:.0f}%")
-        else:
-            self._bar_gpu.set_value(0, "N/A")
-
-        # TMP
-        tmp = snap["tmp"]
-        if tmp >= 0:
-            tmp_pct = min(100, (tmp / 100) * 100)
-            self._bar_tmp.set_value(tmp_pct, f"{tmp:.0f}°C")
-        else:
-            self._bar_tmp.set_value(0, "N/A")
-
-        try:
-            boot_t  = psutil.boot_time()
-            elapsed = time.time() - boot_t
-            h = int(elapsed // 3600)
-            m = int((elapsed % 3600) // 60)
-            self._uptime_lbl.setText(f"UP  {h:02d}:{m:02d}")
-        except Exception:
-            self._uptime_lbl.setText("UP  --:--")
-
-        try:
-            proc_count = len(psutil.pids())
-            self._proc_lbl.setText(f"PROC  {proc_count}")
-        except Exception:
-            self._proc_lbl.setText("PROC  --")
+        """Metrics panel removed — no-op."""
+        pass
 
 
     def _build_header(self) -> QWidget:
@@ -2030,45 +1984,8 @@ class MainWindow(QMainWindow):
         self._date_lbl.setText(time.strftime("%a %d %b %Y"))
 
     def _poll_services(self):
-        """Check proxy (8082) and gateway (2026) and update sidebar indicators."""
-        def _port_alive(port: int) -> bool:
-            import socket as _sock
-            try:
-                with _sock.create_connection(("127.0.0.1", port), timeout=0.4):
-                    return True
-            except OSError:
-                return False
-
-        proxy_up   = _port_alive(8082)
-        gateway_up = _port_alive(2026)
-
-        # Proxy label
-        if proxy_up:
-            self._svc_proxy_lbl.setText("● PROXY\nACTIVE")
-            self._svc_proxy_lbl.setStyleSheet(
-                f"color: {C.GREEN}; background: {C.PANEL2};"
-                f"border: 1px solid {C.GREEN_D}; border-radius: 3px; padding: 4px; font-weight: bold;"
-            )
-        else:
-            self._svc_proxy_lbl.setText("● PROXY\nOFFLINE")
-            self._svc_proxy_lbl.setStyleSheet(
-                f"color: {C.TEXT_DIM}; background: {C.PANEL2};"
-                f"border: 1px solid {C.BORDER_A}; border-radius: 3px; padding: 4px; font-weight: bold;"
-            )
-
-        # Gateway label
-        if gateway_up:
-            self._svc_gateway_lbl.setText("● GATEWAY\nACTIVE")
-            self._svc_gateway_lbl.setStyleSheet(
-                f"color: {C.PRI}; background: {C.PANEL2};"
-                f"border: 1px solid {C.PRI_DIM}; border-radius: 3px; padding: 4px; font-weight: bold;"
-            )
-        else:
-            self._svc_gateway_lbl.setText("● GATEWAY\nOFFLINE")
-            self._svc_gateway_lbl.setStyleSheet(
-                f"color: {C.TEXT_DIM}; background: {C.PANEL2};"
-                f"border: 1px solid {C.BORDER_A}; border-radius: 3px; padding: 4px; font-weight: bold;"
-            )
+        """Service status labels removed — no-op."""
+        pass
 
     def _navigate(self, page: str):
         """Switch center to named page, or HOME (HUD) if page == 'home'."""
@@ -2138,76 +2055,7 @@ class MainWindow(QMainWindow):
             lay.addWidget(btn)
             self._nav_btns[key] = btn
 
-        # ── System Monitor ────────────────────────────────────────────────────
-        lay.addSpacing(6)
-        hdr = QLabel("◈ SYS MONITOR")
-        hdr.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
-        hdr.setStyleSheet(f"color: {C.PRI}; background: transparent; "
-                          f"border-bottom: 1px solid {C.BORDER}; padding-bottom: 4px;")
-        lay.addWidget(hdr)
-        lay.addSpacing(2)
-
-        self._bar_cpu = MetricBar("CPU", C.PRI)
-        self._bar_mem = MetricBar("MEM", C.ACC2)
-        self._bar_net = MetricBar("NET", C.GREEN)
-        self._bar_gpu = MetricBar("GPU", C.ACC)
-        self._bar_tmp = MetricBar("TMP", "#ff6688")
-
-        for bar in [self._bar_cpu, self._bar_mem, self._bar_net,
-                    self._bar_gpu, self._bar_tmp]:
-            lay.addWidget(bar)
-
-        lay.addSpacing(4)
-
-        info_panel = QWidget()
-        info_panel.setStyleSheet(
-            f"background: {C.PANEL2}; border: 1px solid {C.BORDER}; border-radius: 4px;"
-        )
-        ip_lay = QVBoxLayout(info_panel)
-        ip_lay.setContentsMargins(6, 5, 6, 5)
-        ip_lay.setSpacing(3)
-
-        self._uptime_lbl = QLabel("UP  --:--")
-        self._uptime_lbl.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
-        self._uptime_lbl.setStyleSheet(f"color: {C.GREEN}; background: transparent; border: none;")
-        ip_lay.addWidget(self._uptime_lbl)
-
-        self._proc_lbl = QLabel("PROC  --")
-        self._proc_lbl.setFont(QFont("Courier New", 8))
-        self._proc_lbl.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent; border: none;")
-        ip_lay.addWidget(self._proc_lbl)
-
-        os_name = {"Windows": "WIN", "Darwin": "macOS", "Linux": "LINUX"}.get(_OS, _OS.upper())
-        os_lbl = QLabel(f"OS  {os_name}")
-        os_lbl.setFont(QFont("Courier New", 8))
-        os_lbl.setStyleSheet(f"color: {C.ACC2}; background: transparent; border: none;")
-        ip_lay.addWidget(os_lbl)
-
-        lay.addWidget(info_panel)
         lay.addStretch()
-
-        # Live service status labels
-        self._svc_voice_lbl   = QLabel("● GEMINI\nLIVE")
-        self._svc_proxy_lbl   = QLabel("● PROXY\nOFFLINE")
-        self._svc_gateway_lbl = QLabel("● GATEWAY\nOFFLINE")
-        for lbl_w, init_col in [
-            (self._svc_voice_lbl,   C.GREEN),
-            (self._svc_proxy_lbl,   C.TEXT_DIM),
-            (self._svc_gateway_lbl, C.TEXT_DIM),
-        ]:
-            lbl_w.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
-            lbl_w.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl_w.setStyleSheet(
-                f"color: {init_col}; background: {C.PANEL2};"
-                f"border: 1px solid {C.BORDER_A}; border-radius: 3px; padding: 4px;"
-            )
-            lay.addWidget(lbl_w)
-
-        self._svc_tmr = QTimer(self)
-        self._svc_tmr.timeout.connect(self._poll_services)
-        self._svc_tmr.start(4000)
-        self._poll_services()
-
         return w
     def _build_right_panel(self) -> QWidget:
         w = QWidget()
