@@ -59,22 +59,27 @@ Unlike disparate AI toolkits, OCTO-Pro functions as one platform where sensory i
 
 ## ⚡ Quick Start
 
-### Prerequisites
+### 🚀 1-Click Install (Windows — Recommended)
 
-```bash
-# Required
-python 3.11–3.14    (py/uv recommended for package management)
-node.js             (for MCP servers)
-playwright          (for vision/browser control)
-ffmpeg              (for audio processing)
-ripgrep             (for file search)
+```powershell
+# 1. Clone the repository
+git clone https://github.com/Boyapati13/octo.git
+cd octo
+
+# 2. Run the installer (installs all deps, checks Ollama, Node.js, ffmpeg, etc.)
+Set-ExecutionPolicy -Scope Process Bypass
+.\install_octo.ps1
 ```
 
-### Unified Monolithic Startup
+The installer will:
+- Install all Python packages from `requirements.txt`
+- Install Playwright browser binaries
+- Check for Node.js (MCP servers), ffmpeg (audio), ripgrep (file search)
+- Check for Ollama + show model pull commands (Gemma 3, Llama 3.2, Mistral, etc.)
+- Create default config files
+- Offer to launch OCTO immediately
 
-OCTO-Pro integrates all four subsystems directly in-process. You do **not** need to download or launch separate repositories! 
-
-To install dependencies and start the full-stack system:
+### Manual Install (macOS / Linux)
 
 ```bash
 # 1. Clone & Enter Repository
@@ -85,7 +90,7 @@ cd octo/octo
 pip install -r requirements.txt
 playwright install
 
-# 3. Start the Monolith (includes Voice loop + Model Proxy + DeerFlow Gateway + Hermes engine)
+# 3. Start the Monolith (Voice loop + Model Proxy + DeerFlow Gateway + Hermes engine)
 python server.py
 ```
 
@@ -122,7 +127,28 @@ All channel settings are centrally managed in [config.yaml](file:///c:/Users/Ten
        enabled: false
        bot_token: ""
    ```
-3. Set `enabled: true` and enter your custom platform credential tokens. The gateway will dynamically load and launch them in the background thread!
+3. Alternatively, use the **OCTO Desktop → Gateway** page to configure channels with a GUI form.
+
+### 🤖 Ollama — Local AI Backup Models (No API Key Needed)
+
+OCTO supports any model available through [Ollama](https://ollama.ai) as a **Haiku-tier backup** through the built-in proxy. This means if all cloud API keys are offline, OCTO falls back to your local model automatically.
+
+```bash
+# Install Ollama (Windows/macOS/Linux)
+# → https://ollama.ai/download
+
+# Pull your preferred backup model (pick one):
+ollama pull gemma3:4b         # Google Gemma 3 4B  — fast, low VRAM
+ollama pull gemma3:12b        # Google Gemma 3 12B — higher quality
+ollama pull llama3.2:latest   # Meta Llama 3.2
+ollama pull mistral:latest    # Mistral 7B
+ollama pull deepseek-r1:8b    # DeepSeek R1 8B (reasoning)
+```
+
+Then in the OCTO Desktop **Proxy** page → **OLLAMA — LOCAL MODEL BACKUP**:
+1. Set the URL to `http://localhost:11434`
+2. Click **Detect Models** — your installed models appear in the dropdown
+3. Select your preferred backup model and click **Save**
 
 ---
 
@@ -147,8 +173,10 @@ octo/
 │   ├── manager.py               # Channel orchestrator
 │   ├── telegram_channel.py      # Typewriter-style streaming
 │   ├── discord_channel.py       # Typewriter-style streaming
-│   ├── slack_channel.py
-│   └── whatsapp_channel.py
+│   ├── slack_channel.py         # Slack Bot + Socket Mode
+│   ├── whatsapp_channel.py      # WhatsApp via Twilio
+│   ├── dingtalk.py              # DingTalk group robot webhook
+│   └── feishu.py                # Feishu / Lark open platform
 │
 ├── actions/                     # ⚙️ Atomic OS Actions (Mark-XXXIX layer)
 │   ├── browser_control.py       # Vision-based browser automation
