@@ -681,6 +681,40 @@ TOOL_DECLARATIONS = [
             "required": ["action"]
         }
     },
+    {
+        "name": "mt5_mcp",
+        "description": (
+            "Controls MetaTrader 5 via 14 live trading tools. "
+            "Use for ANY MT5 request: account balance/equity, open positions, pending orders, "
+            "OHLCV candles, live price, place BUY/SELL orders, close trades, modify SL/TP, "
+            "cancel orders, trade history, portfolio summary, and AI trading suggestions via Gemini. "
+            "ALWAYS call this for any MetaTrader or trading question."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {
+                    "type": "STRING",
+                    "description": (
+                        "account | price | candles | symbol_info | positions | orders | "
+                        "history | buy | sell | close | close_all | modify | cancel | "
+                        "suggest | portfolio"
+                    )
+                },
+                "symbol":    {"type": "STRING",  "description": "Symbol e.g. EURUSD XAUUSD BTCUSD"},
+                "timeframe": {"type": "STRING",  "description": "M1 M5 M15 M30 H1 H4 D1 W1"},
+                "candles":   {"type": "INTEGER", "description": "Number of candles (default 50)"},
+                "direction": {"type": "STRING",  "description": "BUY or SELL"},
+                "lot_size":  {"type": "NUMBER",  "description": "Volume in lots e.g. 0.01 0.1 1.0"},
+                "sl":        {"type": "NUMBER",  "description": "Stop loss price level"},
+                "tp":        {"type": "NUMBER",  "description": "Take profit price level"},
+                "ticket":    {"type": "INTEGER", "description": "Position or order ticket number"},
+                "days":      {"type": "INTEGER", "description": "History lookback in days (default 7)"},
+                "comment":   {"type": "STRING",  "description": "Order comment"},
+            },
+            "required": ["action"]
+        }
+    },
 ]
 
 class OctoLive:
@@ -1107,6 +1141,76 @@ class OctoLive:
                     r = await loop.run_in_executor(None, _tv_call)
                     result = r or "Done."
                     self.ui.write_log(f"[TV] {tool_name} → {str(result)[:200]}")
+
+            elif name == "mt5_mcp":
+                action = args.get("action", "account")
+                self.ui.write_log(f"[OCTO] 💹 mt5_mcp:{action}  {args}")
+
+                _MT5_MAP = {
+                    "account":   ("get_account_metrics",        {}),
+                    "price":     ("get_live_price",             {"symbol": args.get("symbol", "EURUSD")}),
+                    "candles":   ("fetch_market_candles",       {
+                                     "symbol":       args.get("symbol", "EURUSD"),
+                                     "timeframe":    args.get("timeframe", "H1"),
+                                     "candle_count": args.get("candles", 50),
+                                 }),
+                    "symbol_info": ("get_symbol_info",          {"symbol": args.get("symbol", "EURUSD")}),
+                    "positions": ("get_open_positions",         {"symbol": args.get("symbol")}),
+                    "orders":    ("get_pending_orders",         {"symbol": args.get("symbol")}),
+                    "history":   ("get_trade_history",          {
+                                     "symbol": args.get("symbol"),
+                                     "days":   args.get("days", 7),
+                                 }),
+                    "buy":       ("place_immediate_market_order", {
+                                     "symbol":    args.get("symbol", ""),
+                                     "direction": "BUY",
+                                     "lot_size":  args.get("lot_size", 0.01),
+                                     "sl":        args.get("sl"),
+                                     "tp":        args.get("tp"),
+                                     "comment":   args.get("comment", "OCTO AI"),
+                                 }),
+                    "sell":      ("place_immediate_market_order", {
+                                     "symbol":    args.get("symbol", ""),
+                                     "direction": "SELL",
+                                     "lot_size":  args.get("lot_size", 0.01),
+                                     "sl":        args.get("sl"),
+                                     "tp":        args.get("tp"),
+                                     "comment":   args.get("comment", "OCTO AI"),
+                                 }),
+                    "close":     ("close_position",             {"ticket": args.get("ticket", 0)}),
+                    "close_all": ("close_all_positions",        {"symbol": args.get("symbol")}),
+                    "modify":    ("modify_position",            {
+                                     "ticket": args.get("ticket", 0),
+                                     "sl":     args.get("sl"),
+                                     "tp":     args.get("tp"),
+                                 }),
+                    "cancel":    ("cancel_order",               {"ticket": args.get("ticket", 0)}),
+                    "suggest":   ("get_trading_suggestion",     {
+                                     "symbol":       args.get("symbol", "EURUSD"),
+                                     "timeframe":    args.get("timeframe", "H1"),
+                                     "candle_count": args.get("candles", 50),
+                                 }),
+                    "portfolio": ("get_portfolio_summary",      {}),
+                }
+
+                if action not in _MT5_MAP:
+                    result = (f"Unknown MT5 action '{action}'. "
+                              f"Available: {', '.join(_MT5_MAP.keys())}")
+                else:
+                    mt5_tool, mt5_args = _MT5_MAP[action]
+                    # Remove None values so MT5 server uses defaults
+                    mt5_args = {k: v for k, v in mt5_args.items() if v is not None}
+
+                    def _mt5_call(tn=mt5_tool, ca=mt5_args):
+                        from agent.mcp_bridge import call_tool, _registry
+                        if "metatrader5" not in _registry:
+                            from agent.mcp_bridge import start_all
+                            start_all()
+                        return call_tool("metatrader5", tn, ca)
+
+                    r = await loop.run_in_executor(None, _mt5_call)
+                    result = r or "Done."
+                    self.ui.write_log(f"[MT5] {mt5_tool} → {str(result)[:300]}")
 
             else:
                 result = f"Unknown tool: {name}"
