@@ -254,3 +254,148 @@ def gateway_status() -> dict:
 # task_queue.py calls these names — map them to the new functions above.
 should_use_hermes = should_use_extended
 run_with_hermes   = run_extended
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Gateway config writer
+# ══════════════════════════════════════════════════════════════════════════════
+
+def write_gateway_config(cfg: dict) -> None:
+    """
+    Push gateway config into the embedded ChannelManager.
+    Called by config_manager and gateway_page when settings are saved.
+    """
+    try:
+        from channels.manager import ChannelManager   # type: ignore
+        mgr = get_gateway()
+        if mgr and hasattr(mgr, "update_config"):
+            mgr.update_config(cfg)
+    except Exception as e:
+        log.debug("[Gateway] write_gateway_config: %s", e)
+
+    # Also persist to env vars for DeerFlow channel drivers
+    for platform, platform_cfg in cfg.items():
+        if not isinstance(platform_cfg, dict):
+            continue
+        prefix = platform.upper()
+        for key, val in platform_cfg.items():
+            if val and isinstance(val, str):
+                os.environ[f"{prefix}_{key.upper()}"] = val
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Scheduler  (backed by agent/task_queue.py)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _get_queue():
+    try:
+        from agent.task_queue import get_queue
+        return get_queue()
+    except Exception:
+        return None
+
+
+def list_scheduled() -> list[dict]:
+    """Return all scheduled recurring jobs."""
+    q = _get_queue()
+    if q is None:
+        return []
+    try:
+        if hasattr(q, "list_scheduled"):
+            return q.list_scheduled()
+        if hasattr(q, "jobs"):
+            return [
+                {
+                    "id":       str(getattr(j, "id", i)),
+                    "prompt":   getattr(j, "prompt", getattr(j, "goal", "")),
+                    "schedule": getattr(j, "cron", getattr(j, "schedule", "")),
+                    "label":    getattr(j, "label", ""),
+                    "enabled":  getattr(j, "enabled", True),
+                }
+                for i, j in enumerate(q.jobs)
+                if getattr(j, "cron", None) or getattr(j, "schedule", None)
+            ]
+    except Exception as e:
+        log.debug("[Scheduler] list_scheduled: %s", e)
+    return []
+
+
+def create_scheduled(prompt: str, schedule: str, label: str = "") -> dict | None:
+    """Create a new recurring scheduled task."""
+    q = _get_queue()
+    if q is None:
+        return None
+    try:
+        # Validate cron expression (5 or 6 parts)
+        parts = schedule.strip().split()
+        if len(parts) not in (5, 6):
+            log.warning("[Scheduler] Invalid cron: %s", schedule)
+            return None
+
+        if hasattr(q, "schedule"):
+            job = q.schedule(prompt=prompt, cron=schedule, label=label)
+            if job:
+                return {
+                    "id":       str(getattr(job, "id", "new")),
+                    "prompt":   prompt,
+                    "schedule": schedule,
+                    "label":    label,
+                    "enabled":  True,
+                }
+        # Fallback: use APScheduler if available
+        try:
+            from apscheduler.schedulers.background import BackgroundScheduler
+            from apscheduler.triggers.cron import CronTrigger
+            import uuid as _uuid
+
+            if not hasattr(create_scheduled, "_scheduler"):
+                create_scheduled._scheduler = BackgroundScheduler()
+                create_scheduled._scheduler.start()
+                create_scheduled._jobs: list = []
+
+            scheduler = create_scheduled._scheduler
+            job_id    = str(_uuid.uuid4())[:8]
+
+            def _run_job():
+                try:
+                    run_extended(prompt)
+                except Exception as ex:
+                    log.error("[Scheduler] job %s failed: %s", job_id, ex)
+
+            fields = {k: v for k, v in zip(
+                ["minute", "hour", "day", "month", "day_of_week"],
+                parts[:5]
+            )}
+            scheduler.add_job(_run_job, CronTrigger(**fields), id=job_id)
+            entry = {"id": job_id, "prompt": prompt, "schedule": schedule,
+                     "label": label, "enabled": True}
+            create_scheduled._jobs.append(entry)
+            return entry
+        except ImportError:
+            log.warning("[Scheduler] apscheduler not installed")
+    except Exception as e:
+        log.warning("[Scheduler] create_scheduled: %s", e)
+    return None
+
+
+def delete_scheduled(job_id: str) -> bool:
+    """Delete a scheduled task by ID."""
+    q = _get_queue()
+    if q and hasattr(q, "cancel"):
+        try:
+            q.cancel(job_id)
+            return True
+        except Exception:
+            pass
+
+    # APScheduler fallback
+    try:
+        scheduler = getattr(create_scheduled, "_scheduler", None)
+        if scheduler:
+            scheduler.remove_job(job_id)
+        jobs: list = getattr(create_scheduled, "_jobs", [])
+        create_scheduled._jobs = [j for j in jobs if j.get("id") != job_id]
+        return True
+    except Exception as e:
+        log.debug("[Scheduler] delete_scheduled %s: %s", job_id, e)
+    return False

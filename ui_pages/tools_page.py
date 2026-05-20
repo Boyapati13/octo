@@ -1,48 +1,69 @@
 """Tools page — enable/disable OCTO capability toolsets."""
 from __future__ import annotations
-import subprocess, sys, threading
+import json
+import threading
 from pathlib import Path
 from PyQt6.QtCore import pyqtSignal, Qt
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-)
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
 from PyQt6.QtGui import QFont
 from .base import OctoPage, PRI, ACC2, GREEN, GREEN_D, RED, TEXT_MED, TEXT_DIM, BORDER, PANEL, WHITE
 
-_HERMES = Path(sys.executable).parent / "hermes.exe"
+_TOOLS_CFG = Path(__file__).resolve().parent.parent / "config" / "tools_config.json"
 
 _TOOLSETS = [
-    ("web",            "🔍", "Web Search & Scraping",        "DuckDuckGo, Exa, Tavily, web scraping"),
-    ("browser",        "🌐", "Browser Automation",           "Navigate, click, fill forms, screenshot"),
-    ("terminal",       "💻", "Terminal & Processes",         "Run commands, scripts, manage processes"),
-    ("file",           "📁", "File Operations",              "Read, write, move, search files"),
-    ("code_execution", "⚡", "Code Execution",               "Run Python, JS, bash in sandbox"),
-    ("vision",         "👁",  "Vision / Image Analysis",      "Screenshot analysis, describe images"),
-    ("memory",         "💾", "Memory",                       "Persistent user memory across sessions"),
-    ("skills",         "📚", "Skills",                       "Install and run capability modules"),
-    ("todo",           "📋", "Task Planning",                "Break goals into sub-tasks"),
-    ("delegation",     "👥", "Task Delegation",              "Spawn sub-agents for parallel work"),
-    ("cronjob",        "⏰", "Cron Jobs",                    "Create and manage scheduled tasks"),
-    ("messaging",      "📨", "Cross-Platform Messaging",     "Send messages via Telegram, Slack, etc."),
-    ("image_gen",      "🎨", "Image Generation",             "Generate images via AI (needs FAL key)"),
-    ("tts",            "🔊", "Text-to-Speech",               "Convert text to audio files"),
-    ("homeassistant",  "🏠", "Home Assistant",               "Control smart home (needs HA token)"),
+    ("web",            "🔍", "Web Search & Scraping",      "DuckDuckGo, Exa, Tavily, web scraping"),
+    ("browser",        "🌐", "Browser Automation",         "Navigate, click, fill forms, screenshot"),
+    ("terminal",       "💻", "Terminal & Processes",        "Run commands, scripts, manage processes"),
+    ("file",           "📁", "File Operations",             "Read, write, move, search files"),
+    ("code_execution", "⚡", "Code Execution",              "Run Python, JS, bash in sandbox"),
+    ("vision",         "👁",  "Vision / Image Analysis",    "Screenshot analysis, describe images"),
+    ("memory",         "💾", "Memory",                      "Persistent user memory across sessions"),
+    ("skills",         "📚", "Skills",                      "Install and run capability modules"),
+    ("todo",           "📋", "Task Planning",               "Break goals into sub-tasks"),
+    ("delegation",     "👥", "Task Delegation",             "Spawn sub-agents for parallel work"),
+    ("cronjob",        "⏰", "Cron Jobs",                   "Create and manage scheduled tasks"),
+    ("messaging",      "📨", "Cross-Platform Messaging",    "Send messages via Telegram, Slack, etc."),
+    ("image_gen",      "🎨", "Image Generation",            "Generate images via AI"),
+    ("tts",            "🔊", "Text-to-Speech",              "Convert text to audio files"),
+    ("homeassistant",  "🏠", "Home Assistant",              "Control smart home devices"),
+    ("deerflow",       "🧠", "DeerFlow Orchestration",      "Multi-agent task decomposition"),
+    ("deep_research",  "🔬", "Deep Research",               "Long-horizon web crawling + synthesis"),
 ]
 
 _DEFAULT_ENABLED = {
     "terminal", "file", "code_execution", "memory",
     "todo", "skills", "delegation", "cronjob",
+    "web", "browser", "deerflow", "deep_research",
 }
 
 
+def _load_tools_cfg() -> set:
+    if not _TOOLS_CFG.exists():
+        return set(_DEFAULT_ENABLED)
+    try:
+        data = json.loads(_TOOLS_CFG.read_text(encoding="utf-8"))
+        return set(data.get("enabled", list(_DEFAULT_ENABLED)))
+    except Exception:
+        return set(_DEFAULT_ENABLED)
+
+
+def _save_tools_cfg(enabled: set) -> None:
+    _TOOLS_CFG.parent.mkdir(parents=True, exist_ok=True)
+    _TOOLS_CFG.write_text(
+        json.dumps({"enabled": sorted(enabled)}, indent=2),
+        encoding="utf-8"
+    )
+
+
 class ToolsPage(OctoPage):
-    _refresh_sig = pyqtSignal(list)
+    _status_sig = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._refresh_sig.connect(self._render)
+        self._status_sig.connect(self._on_status)
         self._toggle_btns: dict[str, QPushButton] = {}
-        self._enabled: set[str] = set(_DEFAULT_ENABLED)
+        self._enabled: set = _load_tools_cfg()
+        self._status_lbl = None
         self._build()
 
     def _build(self):
@@ -51,42 +72,43 @@ class ToolsPage(OctoPage):
         hdr = QHBoxLayout()
         hdr.addWidget(self.lbl("◈  OCTO CAPABILITIES", 11, bold=True, color=PRI))
         hdr.addStretch()
-        ref = self.btn("↺ Refresh Status", color=PRI, height=26)
-        ref.clicked.connect(lambda: threading.Thread(target=self._load_status, daemon=True).start())
-        hdr.addWidget(ref)
         lay.addLayout(hdr)
-        lay.addWidget(self.lbl("Enable or disable tool categories for OCTO's extended agent.",
-                               7, color=TEXT_DIM))
+
+        lay.addWidget(self.lbl(
+            "Enable or disable tool categories for OCTO's agent.",
+            7, color=TEXT_DIM))
+        self._status_lbl = self.lbl("", 7, color=GREEN)
+        lay.addWidget(self._status_lbl)
         lay.addWidget(self.sep())
 
         # Grid of tool cards (2 per row)
-        grid_rows: list = []
-        row: list = []
-        for i, (tid, icon, name, desc) in enumerate(_TOOLSETS):
-            card = self._tool_card(tid, icon, name, desc)
-            row.append(card)
-            if len(row) == 2:
-                grid_rows.append(row); row = []
-        if row:
-            grid_rows.append(row)
+        row_widgets: list = []
+        for tid, icon, name, desc in _TOOLSETS:
+            row_widgets.append(self._tool_card(tid, icon, name, desc))
 
-        for rw in grid_rows:
+        for i in range(0, len(row_widgets), 2):
             hr = QHBoxLayout(); hr.setSpacing(8)
-            for card in rw:
-                hr.addWidget(card, stretch=1)
-            if len(rw) < 2:
+            hr.addWidget(row_widgets[i], stretch=1)
+            if i + 1 < len(row_widgets):
+                hr.addWidget(row_widgets[i + 1], stretch=1)
+            else:
                 hr.addStretch(1)
             lay.addLayout(hr)
 
         lay.addWidget(self.sep())
-        save_row = QHBoxLayout()
-        save_b = self.btn("▸  SAVE TOOL CONFIG", color=PRI, height=32)
+        btn_row = QHBoxLayout()
+        enable_all = self.btn("✓ Enable All", color=GREEN, height=30)
+        enable_all.clicked.connect(self._enable_all)
+        disable_all = self.btn("✕ Disable All", color=RED, height=30)
+        disable_all.clicked.connect(self._disable_all)
+        save_b = self.btn("▸  SAVE CONFIG", color=PRI, height=30)
         save_b.clicked.connect(self._save)
-        save_row.addStretch(); save_row.addWidget(save_b)
-        lay.addLayout(save_row)
+        btn_row.addWidget(enable_all)
+        btn_row.addWidget(disable_all)
+        btn_row.addStretch()
+        btn_row.addWidget(save_b)
+        lay.addLayout(btn_row)
         lay.addStretch()
-
-        threading.Thread(target=self._load_status, daemon=True).start()
 
     def _tool_card(self, tid: str, icon: str, name: str, desc: str) -> QWidget:
         enabled = tid in self._enabled
@@ -94,7 +116,8 @@ class ToolsPage(OctoPage):
         card.setStyleSheet(f"background:{PANEL};border:1px solid {BORDER};border-radius:4px;")
         cl = QHBoxLayout(card); cl.setContentsMargins(10, 8, 10, 8); cl.setSpacing(8)
 
-        icon_l = QLabel(icon); icon_l.setFont(QFont("Courier New", 14))
+        icon_l = QLabel(icon)
+        icon_l.setFont(QFont("Courier New", 14))
         icon_l.setStyleSheet(f"color:{ACC2};background:transparent;border:none;")
         icon_l.setFixedWidth(24)
         cl.addWidget(icon_l)
@@ -133,37 +156,26 @@ class ToolsPage(OctoPage):
             self._enabled.add(tid)
             self._update_tog_style(btn, True)
 
-    def _load_status(self):
-        try:
-            r = subprocess.run([str(_HERMES), "tools", "list"],
-                               capture_output=True, text=True, timeout=10)
-            enabled = set()
-            for line in r.stdout.splitlines():
-                if "✓ enabled" in line:
-                    parts = line.strip().split()
-                    for i, p in enumerate(parts):
-                        if p == "enabled" and i + 1 < len(parts):
-                            enabled.add(parts[i + 1])
-            if enabled:
-                self._enabled = enabled
-                self._refresh_sig.emit(list(enabled))
-        except Exception:
-            pass
-
-    def _render(self, enabled: list):
-        self._enabled = set(enabled)
+    def _enable_all(self):
         for tid, btn in self._toggle_btns.items():
-            self._update_tog_style(btn, tid in self._enabled)
+            self._enabled.add(tid)
+            self._update_tog_style(btn, True)
+
+    def _disable_all(self):
+        for tid, btn in self._toggle_btns.items():
+            self._enabled.discard(tid)
+            self._update_tog_style(btn, False)
+
+    def _on_status(self, msg: str):
+        if self._status_lbl:
+            self._status_lbl.setText(msg)
 
     def _save(self):
-        def _run():
-            try:
-                all_ids = {t[0] for t in _TOOLSETS}
-                for tid in all_ids:
-                    action = "enable" if tid in self._enabled else "disable"
-                    subprocess.run([str(_HERMES), "tools", action, tid],
-                                   capture_output=True, timeout=10)
-                print("[OCTO] Tool config saved")
-            except Exception as e:
-                print(f"[OCTO] Tool save: {e}")
-        threading.Thread(target=_run, daemon=True).start()
+        _save_tools_cfg(self._enabled)
+        # Propagate to MCP bridge tool filter
+        try:
+            from agent.mcp_bridge import set_enabled_toolsets
+            set_enabled_toolsets(self._enabled)
+        except Exception:
+            pass
+        self._status_sig.emit(f"✓ Saved {len(self._enabled)} enabled toolsets.")

@@ -1,30 +1,45 @@
 """MCP page — connect any MCP server for extended OCTO capabilities."""
 from __future__ import annotations
 import json
-import subprocess
-import sys
 import threading
 from pathlib import Path
 from PyQt6.QtCore import pyqtSignal, Qt
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit,
-)
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit
 from PyQt6.QtGui import QFont
 from .base import OctoPage, PRI, ACC2, GREEN, GREEN_D, RED, TEXT_MED, TEXT_DIM, BORDER, PANEL, WHITE
 
-_HERMES = Path(sys.executable).parent / "hermes.exe"
+_MCP_CFG = Path(__file__).resolve().parent.parent / "config" / "mcp_servers.json"
 
 _POPULAR_MCP = [
-    ("filesystem",  "npx -y @modelcontextprotocol/server-filesystem",  "Local file system access"),
-    ("github",      "npx -y @modelcontextprotocol/server-github",       "GitHub repos, issues, PRs"),
-    ("postgres",    "npx -y @modelcontextprotocol/server-postgres",     "PostgreSQL database queries"),
-    ("brave-search","npx -y @modelcontextprotocol/server-brave-search", "Web search via Brave"),
-    ("puppeteer",   "npx -y @modelcontextprotocol/server-puppeteer",    "Browser automation"),
-    ("memory",      "npx -y @modelcontextprotocol/server-memory",       "Persistent knowledge graph"),
-    ("slack",       "npx -y @modelcontextprotocol/server-slack",        "Slack workspace integration"),
-    ("google-maps", "npx -y @modelcontextprotocol/server-google-maps",  "Maps & location data"),
+    ("filesystem",   "npx -y @modelcontextprotocol/server-filesystem",   "Local file system access"),
+    ("github",       "npx -y @modelcontextprotocol/server-github",        "GitHub repos, issues, PRs"),
+    ("postgres",     "npx -y @modelcontextprotocol/server-postgres",      "PostgreSQL database queries"),
+    ("brave-search", "npx -y @modelcontextprotocol/server-brave-search",  "Web search via Brave"),
+    ("puppeteer",    "npx -y @modelcontextprotocol/server-puppeteer",     "Browser automation"),
+    ("memory",       "npx -y @modelcontextprotocol/server-memory",        "Persistent knowledge graph"),
+    ("slack",        "npx -y @modelcontextprotocol/server-slack",         "Slack workspace integration"),
+    ("google-maps",  "npx -y @modelcontextprotocol/server-google-maps",   "Maps & location data"),
 ]
+
+
+def _load_mcp_json() -> list:
+    if not _MCP_CFG.exists():
+        return []
+    try:
+        data = json.loads(_MCP_CFG.read_text(encoding="utf-8"))
+        return data.get("servers", data) if isinstance(data, dict) else data
+    except Exception:
+        return []
+
+def _save_mcp_json(servers: list) -> None:
+    _MCP_CFG.parent.mkdir(parents=True, exist_ok=True)
+    _MCP_CFG.write_text(json.dumps({"servers": servers}, indent=2), encoding="utf-8")
+    # Hot-reload the mcp_bridge
+    try:
+        from agent.mcp_bridge import reload_servers
+        reload_servers()
+    except Exception:
+        pass
 
 
 class McpPage(OctoPage):
@@ -39,7 +54,6 @@ class McpPage(OctoPage):
     def _build(self):
         lay = self.page_layout()
 
-        # Header
         hdr = QHBoxLayout()
         hdr.addWidget(self.lbl("◈  MCP INTEGRATION", 11, bold=True, color=PRI))
         hdr.addStretch()
@@ -48,7 +62,7 @@ class McpPage(OctoPage):
         hdr.addWidget(ref)
         lay.addLayout(hdr)
         lay.addWidget(self.lbl(
-            "Connect any MCP (Model Context Protocol) server to extend OCTO with custom tools and data sources.",
+            "Connect any MCP server to extend OCTO with custom tools and data sources.",
             7, color=TEXT_DIM, wrap=True))
         lay.addWidget(self.sep())
 
@@ -63,15 +77,13 @@ class McpPage(OctoPage):
         name_row.addWidget(n_lbl); name_row.addWidget(self._name_f, stretch=1)
         lay.addLayout(name_row)
 
-        # Mode: command or URL
-        mode_row = QHBoxLayout(); mode_row.setSpacing(6)
+        cmd_row = QHBoxLayout(); cmd_row.setSpacing(6)
         cmd_lbl = QLabel("Command"); cmd_lbl.setFixedWidth(70)
         cmd_lbl.setFont(QFont("Courier New", 7))
         cmd_lbl.setStyleSheet(f"color:{TEXT_MED};background:transparent;")
-        self._cmd_f = self.field("npx -y @modelcontextprotocol/server-filesystem /path",
-                                  height=28)
-        mode_row.addWidget(cmd_lbl); mode_row.addWidget(self._cmd_f, stretch=1)
-        lay.addLayout(mode_row)
+        self._cmd_f = self.field("npx -y @modelcontextprotocol/server-filesystem /path", height=28)
+        cmd_row.addWidget(cmd_lbl); cmd_row.addWidget(self._cmd_f, stretch=1)
+        lay.addLayout(cmd_row)
 
         url_row = QHBoxLayout(); url_row.setSpacing(6)
         url_lbl = QLabel("OR  URL"); url_lbl.setFixedWidth(70)
@@ -89,18 +101,13 @@ class McpPage(OctoPage):
         lay.addLayout(add_row)
         lay.addWidget(self.sep())
 
-        # ── Quick install popular servers ──
+        # ── Popular servers ──
         lay.addWidget(self.lbl("POPULAR MCP SERVERS", 8, bold=True, color=TEXT_MED))
-        lay.addWidget(self.lbl("Click to auto-configure  (requires Node.js / npx)",
-                               7, color=TEXT_DIM))
-
+        lay.addWidget(self.lbl("Click to auto-configure  (requires Node.js / npx)", 7, color=TEXT_DIM))
         for name, cmd, desc in _POPULAR_MCP:
-            card = self._quick_card(name, cmd, desc)
-            lay.addWidget(card)
+            lay.addWidget(self._quick_card(name, cmd, desc))
 
         lay.addWidget(self.sep())
-
-        # ── Connected servers ──
         lay.addWidget(self.lbl("CONNECTED SERVERS", 8, bold=True, color=PRI))
         self._servers_layout = QVBoxLayout(); self._servers_layout.setSpacing(4)
         lay.addLayout(self._servers_layout)
@@ -111,49 +118,68 @@ class McpPage(OctoPage):
     def _quick_card(self, name: str, cmd: str, desc: str) -> QWidget:
         card = QWidget()
         card.setStyleSheet(f"background:{PANEL};border:1px solid {BORDER};border-radius:4px;")
-        cl = QHBoxLayout(card); cl.setContentsMargins(10,6,10,6); cl.setSpacing(8)
-
+        cl = QHBoxLayout(card); cl.setContentsMargins(10, 6, 10, 6); cl.setSpacing(8)
         info = QVBoxLayout(); info.setSpacing(1)
         info.addWidget(self.lbl(name, 8, bold=True, color=ACC2))
         info.addWidget(self.lbl(desc, 7, color=TEXT_DIM))
         cl.addLayout(info, stretch=1)
-
         add_b = self.btn("+ Add", color=PRI, height=24)
         add_b.clicked.connect(lambda _, n=name, c=cmd: self._quick_add(n, c))
         cl.addWidget(add_b)
         return card
 
     def _load(self):
+        """Load MCP servers — directly from mcp_servers.json + mcp_bridge."""
+        servers: list = []
+        # 1. Read config file
+        for s in _load_mcp_json():
+            name = s.get("name", "unknown")
+            servers.append({"name": name, "status": "configured",
+                            "command": s.get("command", ""),
+                            "url": s.get("url", "")})
+
+        # 2. Enrich with live tool counts from mcp_bridge
         try:
-            r = subprocess.run([str(_HERMES), "mcp", "list"],
-                               capture_output=True, text=True, timeout=10)
-            servers: list = []
-            for line in r.stdout.strip().splitlines():
-                line = line.strip()
-                if line and not line.startswith("No MCP") and "Add one with" not in line:
-                    servers.append({"name": line})
-            self._servers = servers
-            self._refresh_sig.emit(servers)
+            from agent.mcp_bridge import get_all_tools
+            tools = get_all_tools()
+            tool_names = {t.get("server", "") for t in tools}
+            for s in servers:
+                if s["name"] in tool_names:
+                    s["status"] = "connected"
         except Exception:
-            self._refresh_sig.emit([])
+            pass
+
+        self._servers = servers
+        self._refresh_sig.emit(servers)
 
     def _render_servers(self, servers: list):
         while self._servers_layout.count():
             item = self._servers_layout.takeAt(0)
-            if item.widget(): item.widget().deleteLater()
+            if item.widget():
+                item.widget().deleteLater()
 
         if not servers:
             self._servers_layout.addWidget(
-                self.lbl("No MCP servers connected yet.", 8, color=TEXT_DIM))
+                self.lbl("No MCP servers configured yet.", 8, color=TEXT_DIM))
             return
 
         for s in servers:
-            name = s.get("name", "unknown")
+            name   = s.get("name", "unknown")
+            status = s.get("status", "configured")
+            cmd    = s.get("command", "") or s.get("url", "")
+            color  = GREEN if status == "connected" else TEXT_DIM
+
             card = QWidget()
             card.setStyleSheet(f"background:{PANEL};border:1px solid {BORDER};border-radius:3px;")
-            cl = QHBoxLayout(card); cl.setContentsMargins(10,6,10,6); cl.setSpacing(8)
-            cl.addWidget(self.lbl("●", 10, color=GREEN))
-            cl.addWidget(self.lbl(name, 9, bold=True, color=WHITE), stretch=1)
+            cl = QHBoxLayout(card); cl.setContentsMargins(10, 6, 10, 6); cl.setSpacing(8)
+            cl.addWidget(self.lbl("●", 10, color=color))
+
+            info = QVBoxLayout(); info.setSpacing(1)
+            info.addWidget(self.lbl(name, 9, bold=True, color=WHITE))
+            info.addWidget(self.lbl(cmd[:60], 7, color=TEXT_DIM))
+            cl.addLayout(info, stretch=1)
+
+            cl.addWidget(self.lbl(status.upper(), 7, color=color))
             rm = self.btn("✕ Remove", color=RED, height=24)
             rm.clicked.connect(lambda _, n=name: self._remove(n))
             cl.addWidget(rm)
@@ -164,32 +190,32 @@ class McpPage(OctoPage):
         cmd  = self._cmd_f.text().strip()
         url  = self._url_f.text().strip()
         if not name:
-            self._add_msg.setText("Name is required.")
-            return
+            self._add_msg.setText("Name is required."); return
         if not cmd and not url:
-            self._add_msg.setText("Command or URL is required.")
-            return
+            self._add_msg.setText("Command or URL is required."); return
 
         def _run():
             try:
+                servers = _load_mcp_json()
+                # Remove existing with same name
+                servers = [s for s in servers if s.get("name") != name]
+                entry: dict = {"name": name}
                 if url:
-                    args = [str(_HERMES), "mcp", "add", name, "--url", url]
+                    entry["url"] = url
                 else:
                     parts = cmd.split()
-                    args = [str(_HERMES), "mcp", "add", name, "--command", parts[0]]
+                    entry["command"] = parts[0]
                     if len(parts) > 1:
-                        args += ["--args"] + parts[1:]
-                r = subprocess.run(args, capture_output=True, text=True, timeout=30)
-                if r.returncode == 0:
-                    self._add_msg.setText(f"Connected: {name}")
-                    self._name_f.clear(); self._cmd_f.clear(); self._url_f.clear()
-                else:
-                    self._add_msg.setText(r.stderr.strip()[:60] or "Failed.")
+                        entry["args"] = parts[1:]
+                servers.append(entry)
+                _save_mcp_json(servers)
+                self._add_msg.setText(f"✓ Added: {name}")
+                self._name_f.clear(); self._cmd_f.clear(); self._url_f.clear()
                 self._load()
             except Exception as e:
                 self._add_msg.setText(str(e)[:60])
 
-        self._add_msg.setText("Connecting…")
+        self._add_msg.setText("Adding…")
         threading.Thread(target=_run, daemon=True).start()
 
     def _quick_add(self, name: str, cmd: str):
@@ -199,10 +225,8 @@ class McpPage(OctoPage):
 
     def _remove(self, name: str):
         def _run():
-            try:
-                subprocess.run([str(_HERMES), "mcp", "remove", name],
-                               capture_output=True, timeout=10)
-                self._load()
-            except Exception as e:
-                print(f"[OCTO] MCP remove: {e}")
+            servers = _load_mcp_json()
+            servers = [s for s in servers if s.get("name") != name]
+            _save_mcp_json(servers)
+            self._load()
         threading.Thread(target=_run, daemon=True).start()

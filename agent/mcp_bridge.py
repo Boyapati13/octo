@@ -255,3 +255,27 @@ def stop_all():
                 except Exception:
                     pass
         _registry.clear()
+
+
+# ── Additional helpers called by UI pages ─────────────────────────────────────
+
+def reload_servers() -> None:
+    """Hot-reload MCP servers from mcp_servers.json after config change."""
+    global _started
+    _started = False
+    try:
+        start_all()
+    except Exception as e:
+        logger.debug("MCP reload: %s", e)
+
+
+_enabled_toolsets: set | None = None
+
+def set_enabled_toolsets(toolsets: set) -> None:
+    """Filter which toolsets are active (called by ToolsPage)."""
+    global _enabled_toolsets
+    _enabled_toolsets = set(toolsets)
+
+
+def get_enabled_toolsets() -> set | None:
+    return _enabled_toolsets

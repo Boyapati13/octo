@@ -1264,6 +1264,61 @@ class SettingsOverlay(QWidget):
         gw_status_row.addWidget(start_gw)
         gw.addLayout(gw_status_row)
 
+    def _build_proxy_panel(self, cfg: dict):
+        """Panel for model proxy provider API keys — synced to ~/.fcc/.env."""
+        self._proxy_panel = QWidget(); self._proxy_panel.setStyleSheet("background:transparent;")
+        pp = QVBoxLayout(self._proxy_panel); pp.setContentsMargins(0,4,0,0); pp.setSpacing(5)
+
+        pp.addWidget(self._lbl("MODEL ROUTING PROXY", 9, bold=True, color=C.PRI))
+        pp.addWidget(self._lbl(
+            "Keys saved here are synced to ~/.fcc/.env and used by the embedded model proxy.",
+            7, color=C.TEXT_DIM))
+        pp.addWidget(self._sep())
+
+        _PROXY_PROVIDERS = [
+            ("ANTHROPIC_AUTH_TOKEN",  "anthropic_auth_token",  "Anthropic Auth Token  (optional, for direct routing)", True),
+            ("OPENROUTER_API_KEY",    "openrouter_api_key",    "OpenRouter API Key", True),
+            ("DEEPSEEK_API_KEY",      "deepseek_api_key",      "DeepSeek API Key", True),
+            ("KIMI_API_KEY",          "kimi_api_key",          "Kimi API Key  (Moonshot)", True),
+            ("NVIDIA_NIM_API_KEY",    "nvidia_nim_api_key",    "NVIDIA NIM API Key  (Opus-tier routing)", True),
+            ("FIREWORKS_API_KEY",     "fireworks_api_key",     "Fireworks AI API Key", True),
+            ("ZAI_API_KEY",           "zai_api_key",           "Z.ai API Key", True),
+            ("WAFER_API_KEY",         "wafer_api_key",         "Wafer API Key", True),
+        ]
+
+        try:
+            from memory.config_manager import load_proxy_keys
+            proxy_cfg = load_proxy_keys()
+        except Exception:
+            proxy_cfg = {}
+
+        self._proxy_fields: dict[str, QLineEdit] = {}
+        for env_key, our_key, label, echo in _PROXY_PROVIDERS:
+            row = QHBoxLayout(); row.setSpacing(6)
+            lbl = QLabel(label); lbl.setFixedWidth(260)
+            lbl.setFont(QFont("Courier New", 7))
+            lbl.setStyleSheet(f"color:{C.TEXT_MED};background:transparent;")
+            f = self._field(f"Leave blank if unused", echo=echo,
+                            val=proxy_cfg.get(our_key, ""))
+            row.addWidget(lbl); row.addWidget(f, stretch=1)
+            pp.addLayout(row)
+            self._proxy_fields[our_key] = f
+
+        pp.addWidget(self._sep())
+        pp.addWidget(self._lbl("ROUTING TIERS", 8, bold=True, color=C.TEXT_DIM))
+        tiers = [
+            (C.PRI,   "Opus   (Pro/Ultra)",   "NVIDIA NIM · Kimi · Fireworks"),
+            (C.ACC2,  "Sonnet (Standard)",     "DeepSeek · Wafer · OpenRouter"),
+            (C.GREEN, "Haiku  (Flash)",        "Local Ollama · llama.cpp · LM Studio"),
+        ]
+        for col, tier, backends in tiers:
+            row = QHBoxLayout(); row.setSpacing(8)
+            row.addWidget(self._lbl(tier, 7, bold=True, color=col))
+            row.addWidget(self._lbl(backends, 7, color=C.TEXT_DIM), stretch=1)
+            pp.addLayout(row)
+
+        pp.addStretch()
+
     def _build_header_and_tabs(self, root: QVBoxLayout):
         _TAB_SS = f"""
             QPushButton {{background:transparent;color:{C.TEXT_DIM};
@@ -1277,7 +1332,7 @@ class SettingsOverlay(QWidget):
 
         tab_row = QHBoxLayout(); tab_row.setSpacing(4)
         self._stab_btns: dict[str, QPushButton] = {}
-        for name in ["AI", "GATEWAY"]:
+        for name in ["AI", "PROXY", "GATEWAY"]:
             b = QPushButton(name); b.setCheckable(True)
             b.setChecked(name == "AI"); b.setStyleSheet(_TAB_SS)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1288,8 +1343,10 @@ class SettingsOverlay(QWidget):
         root.addWidget(self._sep())
 
     def _build_footer(self, root: QVBoxLayout):
-        root.addWidget(self._ai_panel,  stretch=1)
-        root.addWidget(self._gw_panel,  stretch=1)
+        root.addWidget(self._ai_panel,    stretch=1)
+        root.addWidget(self._proxy_panel, stretch=1)
+        root.addWidget(self._gw_panel,    stretch=1)
+        self._proxy_panel.hide()
         self._gw_panel.hide()
 
         root.addWidget(self._sep())
@@ -1323,6 +1380,8 @@ class SettingsOverlay(QWidget):
 
         self._build_ai_panel(cfg)
 
+        self._build_proxy_panel(cfg)
+
         self._build_gw_panel(gw_cfg)
 
         self._build_footer(root)
@@ -1331,6 +1390,7 @@ class SettingsOverlay(QWidget):
         for n, b in self._stab_btns.items():
             b.setChecked(n == name)
         self._ai_panel.setVisible(name == "AI")
+        self._proxy_panel.setVisible(name == "PROXY")
         self._gw_panel.setVisible(name == "GATEWAY")
 
     # ── interactions ──────────────────────────────────────────────────────────
@@ -1380,6 +1440,14 @@ class SettingsOverlay(QWidget):
         cfg["text_llm_provider"] = getattr(self, "_sel_model_key", "gemini-2.5-flash")
         self._save_cfg(cfg)
 
+        # ── Sync Gemini key + proxy keys via unified config_manager ──
+        try:
+            from memory.config_manager import save_api_keys, sync_proxy_env
+            save_api_keys(cfg["gemini_api_key"])
+            sync_proxy_env()
+        except Exception as e:
+            print(f"[OCTO] Config sync: {e}")
+
         # ── Gateway settings ──
         gw: dict = {}
         for platform, fields in getattr(self, "_gw_fields", {}).items():
@@ -1388,32 +1456,49 @@ class SettingsOverlay(QWidget):
                 vals["enabled"] = True
                 gw[platform] = vals
         if gw:
-            self._save_gw_cfg(gw)
             try:
-                from agent.hermes_bridge import write_gateway_config
-                write_gateway_config(gw)
+                from memory.config_manager import save_gateway_config
+                save_gateway_config(gw)
             except Exception as e:
-                print(f"[OCTO] ⚠️ Gateway config write: {e}")
+                print(f"[OCTO] Gateway save: {e}")
+
+        # ── Proxy provider keys ──
+        proxy_keys = {k: f.text().strip() for k, f in getattr(self, "_proxy_fields", {}).items()}
+        if any(proxy_keys.values()):
+            try:
+                from memory.config_manager import save_proxy_keys
+                save_proxy_keys(proxy_keys)
+            except Exception as e:
+                print(f"[OCTO] Proxy key save: {e}")
 
         self.saved.emit()
         self.hide()
 
     def _start_gateway(self):
-        import subprocess, sys
-        from pathlib import Path
+        import threading
         # Save first
         self._save()
-        hermes = Path(sys.executable).parent / "hermes.exe"
-        try:
-            subprocess.Popen(
-                [str(hermes), "gateway", "run", "--accept-hooks"],
-                creationflags=0x00000010,  # CREATE_NEW_CONSOLE
-            )
-            self._gw_status_lbl.setText("Gateway: starting…")
-            self._gw_status_lbl.setStyleSheet(f"color:{C.ACC2};background:transparent;")
-        except Exception as e:
-            self._gw_status_lbl.setText(f"Error: {e}")
-            self._gw_status_lbl.setStyleSheet(f"color:{C.RED};background:transparent;")
+        self._gw_status_lbl.setText("Gateway: starting…")
+        self._gw_status_lbl.setStyleSheet(f"color:{C.ACC2};background:transparent;")
+
+        def _run():
+            try:
+                from agent.hermes_bridge import start_gateway, gateway_status
+                started = start_gateway()
+                status  = gateway_status()
+                if started:
+                    msg = f"Gateway running: {', '.join(started)}"
+                    col = C.GREEN
+                else:
+                    msg = "Gateway up (no platforms configured with tokens)"
+                    col = C.ACC2
+                self._gw_status_lbl.setText(msg)
+                self._gw_status_lbl.setStyleSheet(f"color:{col};background:transparent;")
+            except Exception as e:
+                self._gw_status_lbl.setText(f"Error: {e}")
+                self._gw_status_lbl.setStyleSheet(f"color:{C.RED};background:transparent;")
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def _detect_gemini_models(self):
         key = self._key_f.text().strip()
