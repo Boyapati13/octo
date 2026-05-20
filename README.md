@@ -63,50 +63,66 @@ Unlike disparate AI toolkits, OCTO-Pro functions as one platform where sensory i
 
 ```bash
 # Required
-python 3.11–3.14    (uv recommended for package management)
+python 3.11–3.14    (py/uv recommended for package management)
 node.js             (for MCP servers)
 playwright          (for vision/browser control)
 ffmpeg              (for audio processing)
 ripgrep             (for file search)
 ```
 
-### Install & Run
+### Unified Monolithic Startup
+
+OCTO-Pro integrates all four subsystems directly in-process. You do **not** need to download or launch separate repositories! 
+
+To install dependencies and start the full-stack system:
 
 ```bash
+# 1. Clone & Enter Repository
 git clone https://github.com/Boyapati13/octo.git
-cd octo
+cd octo/octo
+
+# 2. Install Dependencies
 pip install -r requirements.txt
 playwright install
-python main.py
+
+# 3. Start the Monolith (includes Voice loop + Model Proxy + DeerFlow Gateway + Hermes engine)
+python server.py
 ```
 
-### Optional: DeerFlow 2.0 Orchestration Backend
+### Monolith Configuration & Command Line Options
+
+You can control which parts of the monolith start using command-line arguments:
 
 ```bash
-git clone https://github.com/bytedance/deer-flow.git
-cd deer-flow
-pip install -e backend
-uvicorn backend.app.gateway.app:app --port 2026
+# Headless Mode: Run model proxy + DeerFlow gateway only (no PyQt/Voice loop)
+python server.py --no-voice
+
+# Skip Model Proxy (if running your own proxy elsewhere)
+python server.py --no-proxy
+
+# Skip DeerFlow Gateway
+python server.py --no-gateway
+
+# Specify Custom Ports
+python server.py --proxy-port 8082 --gateway-port 2026
 ```
 
-### Optional: Free-Claude-Code Model Proxy
+### 📡 Configuring Multi-Channel Gateway
 
-```bash
-git clone https://github.com/Alishahryar1/free-claude-code.git
-cd free-claude-code
-pip install -r requirements.txt
-python main.py   # Admin UI at http://127.0.0.1:<port>
-```
+All channel settings are centrally managed in [config.yaml](file:///c:/Users/Tenders/octo/octo/config.yaml) in the project root:
 
-> **Note:** The Admin UI is bound to `127.0.0.1` loopback only. For external access, place an Nginx reverse proxy with strong pre-authentication in front of it.
-
-### Optional: Hermes Agent Memory Engine
-
-```bash
-git clone https://github.com/NousResearch/hermes-agent.git
-cd hermes-agent
-pip install -e .
-```
+1. Open `config.yaml`
+2. Locate the `channels` section:
+   ```yaml
+   channels:
+     telegram:
+       enabled: true
+       bot_token: "YOUR_TELEGRAM_BOT_TOKEN"
+     discord:
+       enabled: false
+       bot_token: ""
+   ```
+3. Set `enabled: true` and enter your custom platform credential tokens. The gateway will dynamically load and launch them in the background thread!
 
 ---
 
