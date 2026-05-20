@@ -1,3 +1,16 @@
 {
-  "servers": []
+  "servers": [
+    {
+      "name": "tradingview",
+      "label": "TradingView MCP",
+      "description": "78 tools for reading & controlling a live TradingView Desktop chart via Chrome DevTools Protocol — charts, Pine Script, indicators, alerts, replay, screenshots",
+      "transport": "stdio",
+      "command": "node",
+      "args": ["C:\\Users\\Tenders\\tradingview-mcp\\src\\server.js"],
+      "cwd": "C:\\Users\\Tenders\\tradingview-mcp",
+      "auto_start": true,
+      "enabled": true,
+      "icon": "📈"
+    }
+  ]
 }

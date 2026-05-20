@@ -109,7 +109,8 @@ def _http_list_tools(url: str, headers: Dict = None) -> List[Dict]:
 class _StdioMcpClient:
     """Minimal stdio MCP client (JSON-RPC over stdin/stdout)."""
 
-    def __init__(self, name: str, command: str, args: List[str], env: Dict = None):
+    def __init__(self, name: str, command: str, args: List[str],
+                 env: Dict = None, cwd: str = None):
         self.name    = name
         self._id_ctr = 0
         import os
@@ -119,12 +120,27 @@ class _StdioMcpClient:
         self._proc = subprocess.Popen(
             [command] + args,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True, env=proc_env,
+            cwd=cwd or None,
         )
         self._lock = threading.Lock()
-        # Initialise
-        self._send({"method": "initialize", "params": {"protocolVersion": "2024-11-05",
-                    "capabilities": {}, "clientInfo": {"name": "octo", "version": "1.0"}}})
+        # Initialise handshake
+        init_resp = self._send({
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "octo", "version": "1.0"}
+            }
+        })
+        # Send initialized notification (no id, no response expected)
+        notif = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"
+        try:
+            self._proc.stdin.write(notif)
+            self._proc.stdin.flush()
+        except Exception:
+            pass
 
     def _next_id(self) -> int:
         self._id_ctr += 1
@@ -138,13 +154,19 @@ class _StdioMcpClient:
             line = json.dumps(payload) + "\n"
             self._proc.stdin.write(line)
             self._proc.stdin.flush()
-            raw = self._proc.stdout.readline()
-            if not raw:
-                return {}
-            try:
-                return json.loads(raw)
-            except Exception:
-                return {}
+            # Read until we get a response with matching id (skip notifications)
+            for _ in range(20):
+                raw = self._proc.stdout.readline()
+                if not raw:
+                    return {}
+                try:
+                    obj = json.loads(raw)
+                    if "id" in obj and obj["id"] == payload["id"]:
+                        return obj
+                    # It's a notification — skip and keep reading
+                except Exception:
+                    continue
+            return {}
 
     def list_tools(self) -> List[Dict]:
         resp = self._send({"method": "tools/list", "params": {}})
@@ -168,11 +190,14 @@ class _StdioMcpClient:
 # ── Registry ───────────────────────────────────────────────────────────────
 
 def start_all() -> Dict[str, List[Dict]]:
-    """Start all configured MCP servers and return {name: [tools]}."""
+    """Start all auto_start+enabled MCP servers; returns {name: [tools]}."""
     servers = _load_config()
     result  = {}
     for cfg in servers:
         name = cfg.get("name", "unnamed")
+        # Only auto-start servers flagged as auto_start (or no flag at all for backwards compat)
+        if not cfg.get("enabled", True):
+            continue
         try:
             tools = _connect_server(cfg)
             result[name] = tools
@@ -187,6 +212,7 @@ def _connect_server(cfg: Dict) -> List[Dict]:
     url     = cfg.get("url")
     command = cfg.get("command")
     args    = cfg.get("args", [])
+    cwd     = cfg.get("cwd")
     headers = cfg.get("headers", {})
     env     = cfg.get("env", {})
 
@@ -199,13 +225,14 @@ def _connect_server(cfg: Dict) -> List[Dict]:
             call_fn = lambda tn, kw: _http_call(url, tn, kw, headers)  # noqa: E731
             client  = None
         elif command:
-            client  = _StdioMcpClient(name, command, args, env)
+            client  = _StdioMcpClient(name, command, args, env, cwd)
             tools   = client.list_tools()
             call_fn = client.call_tool
         else:
             raise ValueError("Server needs 'url' or 'command'")
 
-        _registry[name] = {"client": client, "tools": tools, "call_fn": call_fn}
+        _registry[name] = {"client": client, "tools": tools, "call_fn": call_fn,
+                           "cfg": cfg}
         return tools
 
 

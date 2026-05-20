@@ -110,6 +110,18 @@ def _init_hermes() -> None:
     except Exception as e:
         log.debug("Hermes init skipped: %s", e)
 
+    # ── Auto-connect MCP servers (non-blocking) ──────────────────────────────
+    def _start_mcp_servers():
+        import time as _time; _time.sleep(3)   # wait for UI to be ready
+        try:
+            from agent.mcp_bridge import start_all
+            results = start_all()
+            for name, tools in results.items():
+                log.info("🔌 MCP connected: %s (%d tools)", name, len(tools))
+        except Exception as e:
+            log.debug("MCP auto-start skipped: %s", e)
+    threading.Thread(target=_start_mcp_servers, daemon=True, name="mcp-autostart").start()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Health helpers
