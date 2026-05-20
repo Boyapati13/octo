@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import socket
 import threading
+from datetime import datetime
 from pathlib import Path
 from PyQt6.QtCore import pyqtSignal, Qt, QTimer
 from PyQt6.QtWidgets import (
@@ -75,16 +76,22 @@ _PLATFORMS = [
     },
 ]
 
+# Platforms that cannot be auto-tested
+_NO_AUTO_TEST = {"whatsapp", "dingtalk", "feishu"}
+
 
 class GatewayPage(OctoPage):
     _status_sig = pyqtSignal(str)
     _state_sig  = pyqtSignal(bool)   # True = gateway running
+    _test_sig   = pyqtSignal(str, str)  # (pid, result_html_text)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._status_sig.connect(self._on_status)
         self._state_sig.connect(self._on_gw_state)
+        self._test_sig.connect(self._on_test_result)
         self._fields: dict[str, dict[str, QLineEdit]] = {}
+        self._test_labels: dict[str, QLabel] = {}
         self._status_lbl: QLabel | None = None
         self._cfg = self._load_cfg()
         self._build()
@@ -126,21 +133,28 @@ class GatewayPage(OctoPage):
             self._state_sig.emit(False)
 
     def _on_gw_state(self, running: bool):
+        ts = datetime.now().strftime("%H:%M:%S")
         if running:
-            self._gw_status.setText("● ACTIVE  [127.0.0.1:2026]")
+            self._gw_status.setText(f"● ACTIVE  [2026]  {ts}")
             self._gw_status.setStyleSheet(f"color:{GREEN};background:transparent;font-weight:bold;")
             self._gw_btn.setText("▪  GATEWAY RUNNING")
             self._gw_btn.setStyleSheet(f"""QPushButton{{background:transparent;color:{TEXT_DIM};
                 border:1px solid {BORDER};border-radius:3px;padding:0 12px;}}""")
             self._gw_btn.setEnabled(False)
         else:
-            self._gw_status.setText("○ OFFLINE")
+            self._gw_status.setText(f"○ OFFLINE  {ts}")
             self._gw_status.setStyleSheet(f"color:{TEXT_DIM};background:transparent;")
             self._gw_btn.setText("▸  START GATEWAY")
             self._gw_btn.setStyleSheet(f"""QPushButton{{background:transparent;color:{GREEN};
                 border:1px solid {GREEN_D};border-radius:3px;padding:0 12px;}}
                 QPushButton:hover{{background:#001a0d;border-color:{GREEN};}}""")
             self._gw_btn.setEnabled(True)
+
+    # ── test result handler (main thread via signal) ──────────────────────────
+    def _on_test_result(self, pid: str, html: str):
+        lbl = self._test_labels.get(pid)
+        if lbl:
+            lbl.setText(html)
 
     # ── build ─────────────────────────────────────────────────────────────────
     def _build(self):
@@ -152,6 +166,17 @@ class GatewayPage(OctoPage):
         hdr.addStretch()
         self._gw_status = self.lbl("○ CHECKING", 7, color=TEXT_DIM)
         hdr.addWidget(self._gw_status)
+
+        # ⟳ REFRESH STATUS button
+        refresh_btn = QPushButton("⟳  REFRESH STATUS")
+        refresh_btn.setFixedHeight(30)
+        refresh_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        refresh_btn.setStyleSheet(f"""QPushButton{{background:transparent;color:{ACC2};
+            border:1px solid {ACC2}55;border-radius:3px;padding:0 10px;}}
+            QPushButton:hover{{background:#0a0a1a;border-color:{ACC2};}}""")
+        refresh_btn.clicked.connect(self._refresh_all)
+        hdr.addWidget(refresh_btn)
 
         self._gw_btn = QPushButton("▸  START GATEWAY")
         self._gw_btn.setFixedHeight(30)
@@ -192,6 +217,7 @@ class GatewayPage(OctoPage):
         pid   = p["id"]
         saved = self._cfg.get(pid, {})
         has   = bool(saved)
+        color = p["color"]
 
         card = QWidget()
         card.setStyleSheet(f"""QWidget{{background:{PANEL};
@@ -204,10 +230,10 @@ class GatewayPage(OctoPage):
         ch = QHBoxLayout()
         icon_l = QLabel(p["icon"])
         icon_l.setFont(QFont("Segoe UI Emoji", 15))
-        icon_l.setStyleSheet(f"color:{p['color']};background:transparent;border:none;")
+        icon_l.setStyleSheet(f"color:{color};background:transparent;border:none;")
         name_l = QLabel(p["name"])
         name_l.setFont(QFont("Courier New", 10, QFont.Weight.Bold))
-        name_l.setStyleSheet(f"color:{p['color']};background:transparent;border:none;")
+        name_l.setStyleSheet(f"color:{color};background:transparent;border:none;")
         impl_l = QLabel(p["impl"].split(".")[-1])
         impl_l.setFont(QFont("Courier New", 7))
         impl_l.setStyleSheet(f"color:{TEXT_DIM};background:transparent;border:none;")
@@ -246,7 +272,7 @@ class GatewayPage(OctoPage):
                 ff.setEchoMode(QLineEdit.EchoMode.Password)
             ff.setStyleSheet(f"""QLineEdit{{background:#000d14;color:{WHITE};
                 border:1px solid {BORDER};border-radius:3px;padding:2px 6px;}}
-                QLineEdit:focus{{border:1px solid {p['color']};}}""")
+                QLineEdit:focus{{border:1px solid {color};}}""")
             fr.addWidget(fl); fr.addWidget(ff, stretch=1)
             cl.addLayout(fr)
             self._fields[pid][fname] = ff
@@ -257,13 +283,176 @@ class GatewayPage(OctoPage):
             pair_b.setFixedHeight(26)
             pair_b.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
             pair_b.setCursor(Qt.CursorShape.PointingHandCursor)
-            pair_b.setStyleSheet(f"""QPushButton{{background:transparent;color:{p['color']};
-                border:1px solid {p['color']}55;border-radius:3px;padding:0 10px;}}
+            pair_b.setStyleSheet(f"""QPushButton{{background:transparent;color:{color};
+                border:1px solid {color}55;border-radius:3px;padding:0 10px;}}
                 QPushButton:hover{{background:#001a0d;}}""")
             pair_b.clicked.connect(self._pair_whatsapp)
             cl.addWidget(pair_b)
 
+        # ── Bottom action row: SAVE  +  ▸ TEST ────────────────────────────────
+        btn_row = QHBoxLayout(); btn_row.setSpacing(6)
+
+        save_btn = QPushButton("▸  SAVE")
+        save_btn.setFixedHeight(26)
+        save_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        save_btn.setStyleSheet(f"""QPushButton{{background:transparent;color:{PRI};
+            border:1px solid {PRI_DIM};border-radius:3px;padding:0 10px;}}
+            QPushButton:hover{{background:#000d1f;border-color:{PRI};}}""")
+        save_btn.clicked.connect(lambda _, _pid=pid: self._save_single(pid))
+
+        test_btn = QPushButton("▸ TEST")
+        test_btn.setFixedHeight(26)
+        test_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        test_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        test_btn.setStyleSheet(f"""QPushButton{{background:transparent;color:{color};
+            border:1px solid {color}77;border-radius:3px;padding:0 10px;}}
+            QPushButton:hover{{background:#0a0a0a;border-color:{color};}}""")
+        test_btn.clicked.connect(lambda _, _pid=pid: self._test_platform(_pid))
+
+        btn_row.addStretch()
+        btn_row.addWidget(save_btn)
+        btn_row.addWidget(test_btn)
+        cl.addLayout(btn_row)
+
+        # Test result label (inline, below buttons)
+        test_lbl = QLabel("")
+        test_lbl.setFont(QFont("Courier New", 7))
+        test_lbl.setStyleSheet("background:transparent;border:none;")
+        test_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
+        test_lbl.setWordWrap(True)
+        cl.addWidget(test_lbl)
+        self._test_labels[pid] = test_lbl
+
         return card
+
+    # ── per-card save ─────────────────────────────────────────────────────────
+    def _save_single(self, pid: str):
+        self._save_cfg()
+        self._on_status(f"✓ {pid.capitalize()} settings saved.")
+
+    # ── test platform connection ──────────────────────────────────────────────
+    def _test_platform(self, pid: str):
+        lbl = self._test_labels.get(pid)
+        if lbl:
+            lbl.setText(f"<span style='color:{TEXT_DIM};'>⋯ testing…</span>")
+
+        p_meta = next((p for p in _PLATFORMS if p["id"] == pid), None)
+        if not p_meta:
+            return
+        name = p_meta["name"]
+
+        if pid in _NO_AUTO_TEST:
+            self._test_sig.emit(
+                pid,
+                f"<span style='color:{TEXT_DIM};'>ℹ Cannot auto-test {name} — check your token manually.</span>",
+            )
+            return
+
+        flds = self._fields.get(pid, {})
+        token = flds.get("token", QLineEdit()).text().strip()
+
+        if not token:
+            self._test_sig.emit(
+                pid,
+                f"<span style='color:{RED};'>✗ No token entered — fill in the token field first.</span>",
+            )
+            return
+
+        def _run():
+            try:
+                import requests as _req
+            except ImportError:
+                self._test_sig.emit(
+                    pid,
+                    f"<span style='color:{RED};'>✗ 'requests' not installed — pip install requests</span>",
+                )
+                return
+
+            try:
+                if pid == "telegram":
+                    r = _req.get(
+                        f"https://api.telegram.org/bot{token}/getMe",
+                        timeout=8,
+                    )
+                    data = r.json()
+                    if data.get("ok"):
+                        uname = data.get("result", {}).get("username", "?")
+                        self._test_sig.emit(
+                            pid,
+                            f"<span style='color:{GREEN};'>✓ Connected as @{uname}</span>",
+                        )
+                    else:
+                        err = data.get("description", "unknown error")
+                        self._test_sig.emit(
+                            pid,
+                            f"<span style='color:{RED};'>✗ Invalid token: {err}</span>",
+                        )
+
+                elif pid == "discord":
+                    r = _req.get(
+                        "https://discord.com/api/v10/users/@me",
+                        headers={"Authorization": f"Bot {token}"},
+                        timeout=8,
+                    )
+                    if r.status_code == 200:
+                        uname = r.json().get("username", "?")
+                        self._test_sig.emit(
+                            pid,
+                            f"<span style='color:{GREEN};'>✓ Connected as @{uname}</span>",
+                        )
+                    else:
+                        err = r.json().get("message", str(r.status_code))
+                        self._test_sig.emit(
+                            pid,
+                            f"<span style='color:{RED};'>✗ Invalid token: {err}</span>",
+                        )
+
+                elif pid == "slack":
+                    r = _req.post(
+                        "https://slack.com/api/auth.test",
+                        headers={"Authorization": f"Bearer {token}"},
+                        timeout=8,
+                    )
+                    data = r.json()
+                    if data.get("ok"):
+                        uname = data.get("user", data.get("bot_id", "?"))
+                        self._test_sig.emit(
+                            pid,
+                            f"<span style='color:{GREEN};'>✓ Connected as @{uname}</span>",
+                        )
+                    else:
+                        err = data.get("error", "unknown")
+                        self._test_sig.emit(
+                            pid,
+                            f"<span style='color:{RED};'>✗ Invalid token: {err}</span>",
+                        )
+
+                else:
+                    self._test_sig.emit(
+                        pid,
+                        f"<span style='color:{TEXT_DIM};'>ℹ No auto-test for {pid}.</span>",
+                    )
+
+            except Exception as exc:
+                self._test_sig.emit(
+                    pid,
+                    f"<span style='color:{RED};'>✗ Request error: {exc}</span>",
+                )
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    # ── refresh all statuses ──────────────────────────────────────────────────
+    def _refresh_all(self):
+        self._poll_gateway()
+        self._on_status("↻ Refreshing platform statuses…")
+        for p in _PLATFORMS:
+            pid = p["id"]
+            # Only re-test if a token is present
+            flds = self._fields.get(pid, {})
+            token_field = flds.get("token")
+            if token_field and token_field.text().strip():
+                self._test_platform(pid)
 
     # ── actions ───────────────────────────────────────────────────────────────
     def _on_status(self, msg: str):

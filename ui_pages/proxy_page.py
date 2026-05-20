@@ -46,16 +46,27 @@ _OLLAMA_MODELS = [
     ("deepseek-r1:8b",       "DeepSeek R1 8B",         "DeepSeek"),
 ]
 
+# Keys that have no auto-test endpoint
+_NO_TEST_KEYS = {"zai_api_key", "wafer_api_key"}
+
+# Dot colours
+_DOT_GREY  = "#555566"
+_DOT_GREEN = "#00ff88"
+_DOT_RED   = "#ff3355"
+
 
 class ProxyPage(OctoPage):
-    _status_sig  = pyqtSignal(str)
-    _ollama_sig  = pyqtSignal(list)   # fires with list[str] of discovered model tags
+    _status_sig   = pyqtSignal(str)
+    _ollama_sig   = pyqtSignal(list)    # fires with list[str] of discovered model tags
+    _validate_sig = pyqtSignal(str, str)  # (key_name, result)  "ok:..." | "err:..."
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._status_sig.connect(self._on_status)
         self._ollama_sig.connect(self._on_ollama_models)
+        self._validate_sig.connect(self._on_validate_result)
         self._fields: dict[str, QLineEdit] = {}
+        self._key_dots: dict[str, QLabel] = {}
         self._status_lbl: QLabel | None = None
         self._ollama_url_f: QLineEdit | None = None
         self._ollama_model_cb: QComboBox | None = None
@@ -159,6 +170,156 @@ class ProxyPage(OctoPage):
         else:
             self._status_sig.emit("No Ollama models found — try 'ollama pull gemma3:4b'.")
 
+    # ── validate result handler (main thread) ─────────────────────────────────
+    def _on_validate_result(self, key_name: str, result: str):
+        dot = self._key_dots.get(key_name)
+        if not dot:
+            return
+        if result.startswith("ok:"):
+            detail = result[3:]
+            dot.setText("●")
+            dot.setStyleSheet(
+                f"color:{_DOT_GREEN};background:transparent;border:none;font-weight:bold;"
+            )
+            msg = f"✓ {key_name}: connected"
+            if detail:
+                msg += f" ({detail})"
+            self._on_status(msg)
+        elif result.startswith("err:"):
+            detail = result[4:]
+            dot.setText("●")
+            dot.setStyleSheet(
+                f"color:{_DOT_RED};background:transparent;border:none;font-weight:bold;"
+            )
+            self._on_status(f"✗ {key_name}: {detail}")
+        else:
+            dot.setText("?")
+            dot.setStyleSheet(
+                f"color:{_DOT_GREY};background:transparent;border:none;"
+            )
+
+    # ── validate key in background thread ────────────────────────────────────
+    def _validate_key(self, key_name: str, value: str):
+        # Reset dot to spinning state
+        dot = self._key_dots.get(key_name)
+        if dot:
+            dot.setText("⋯")
+            dot.setStyleSheet(
+                f"color:{TEXT_DIM};background:transparent;border:none;"
+            )
+
+        if not value:
+            self._validate_sig.emit(key_name, "err:No key entered")
+            return
+
+        if key_name in _NO_TEST_KEYS:
+            self._validate_sig.emit(
+                key_name, "err:No test endpoint — save and test via proxy"
+            )
+            return
+
+        def _run():
+            try:
+                import requests as _req
+            except ImportError:
+                self._validate_sig.emit(key_name, "err:'requests' not installed")
+                return
+
+            try:
+                if key_name == "anthropic_auth_token":
+                    payload = {
+                        "model": "claude-3-haiku-20240307",
+                        "max_tokens": 1,
+                        "messages": [{"role": "user", "content": "hi"}],
+                    }
+                    r = _req.post(
+                        "https://api.anthropic.com/v1/messages",
+                        headers={
+                            "x-api-key": value,
+                            "anthropic-version": "2023-06-01",
+                            "content-type": "application/json",
+                        },
+                        json=payload,
+                        timeout=10,
+                    )
+                    if r.status_code == 401:
+                        self._validate_sig.emit(key_name, "err:Unauthorized (401)")
+                    else:
+                        self._validate_sig.emit(key_name, "ok:Anthropic API")
+
+                elif key_name == "openrouter_api_key":
+                    r = _req.get(
+                        "https://openrouter.ai/api/v1/auth/key",
+                        headers={"Authorization": f"Bearer {value}"},
+                        timeout=8,
+                    )
+                    if r.status_code == 200:
+                        data = r.json()
+                        label = data.get("data", {}).get("label", "")
+                        self._validate_sig.emit(key_name, f"ok:{label}")
+                    else:
+                        self._validate_sig.emit(
+                            key_name, f"err:HTTP {r.status_code}"
+                        )
+
+                elif key_name == "deepseek_api_key":
+                    r = _req.get(
+                        "https://api.deepseek.com/user/balance",
+                        headers={"Authorization": f"Bearer {value}"},
+                        timeout=8,
+                    )
+                    if r.status_code == 401:
+                        self._validate_sig.emit(key_name, "err:Unauthorized (401)")
+                    else:
+                        self._validate_sig.emit(key_name, "ok:DeepSeek API")
+
+                elif key_name == "kimi_api_key":
+                    r = _req.get(
+                        "https://api.moonshot.cn/v1/models",
+                        headers={"Authorization": f"Bearer {value}"},
+                        timeout=8,
+                    )
+                    if r.status_code == 200:
+                        self._validate_sig.emit(key_name, "ok:Moonshot API")
+                    else:
+                        self._validate_sig.emit(
+                            key_name, f"err:HTTP {r.status_code}"
+                        )
+
+                elif key_name == "nvidia_nim_api_key":
+                    r = _req.get(
+                        "https://integrate.api.nvidia.com/v1/models",
+                        headers={"Authorization": f"Bearer {value}"},
+                        timeout=8,
+                    )
+                    if r.status_code == 200:
+                        self._validate_sig.emit(key_name, "ok:NVIDIA NIM API")
+                    else:
+                        self._validate_sig.emit(
+                            key_name, f"err:HTTP {r.status_code}"
+                        )
+
+                elif key_name == "fireworks_api_key":
+                    r = _req.get(
+                        "https://api.fireworks.ai/inference/v1/models",
+                        headers={"Authorization": f"Bearer {value}"},
+                        timeout=8,
+                    )
+                    if r.status_code == 200:
+                        self._validate_sig.emit(key_name, "ok:Fireworks API")
+                    else:
+                        self._validate_sig.emit(
+                            key_name, f"err:HTTP {r.status_code}"
+                        )
+
+                else:
+                    self._validate_sig.emit(key_name, "err:Unknown provider")
+
+            except Exception as exc:
+                self._validate_sig.emit(key_name, f"err:{exc}")
+
+        threading.Thread(target=_run, daemon=True).start()
+
     # ── build ─────────────────────────────────────────────────────────────────
     def _build(self):
         lay = self.page_layout()
@@ -202,10 +363,12 @@ class ProxyPage(OctoPage):
         for key_name, label_text, is_pwd in _PROXY_PROVIDERS:
             saved_val = self._cfg.get(key_name, "")
             row = QHBoxLayout(); row.setSpacing(6)
+
             lbl = QLabel(label_text)
             lbl.setFont(QFont("Courier New", 7))
             lbl.setFixedWidth(260)
             lbl.setStyleSheet(f"color:{TEXT_MED};background:transparent;border:none;")
+
             f = QLineEdit(saved_val)
             f.setPlaceholderText("Leave blank if unused")
             f.setFixedHeight(26)
@@ -215,7 +378,35 @@ class ProxyPage(OctoPage):
             f.setStyleSheet(f"""QLineEdit{{background:#000d14;color:{WHITE};
                 border:1px solid {BORDER};border-radius:3px;padding:2px 6px;}}
                 QLineEdit:focus{{border:1px solid {PRI};}}""")
-            row.addWidget(lbl); row.addWidget(f, stretch=1)
+
+            # ✓ Test button
+            test_btn = QPushButton("✓ Test")
+            test_btn.setFixedHeight(22)
+            test_btn.setFixedWidth(52)
+            test_btn.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+            test_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            test_btn.setStyleSheet(f"""QPushButton{{background:transparent;color:{ACC2};
+                border:1px solid {ACC2}55;border-radius:3px;padding:0 4px;}}
+                QPushButton:hover{{background:#0a0a1a;border-color:{ACC2};}}""")
+            # capture key_name and field in closure
+            test_btn.clicked.connect(
+                lambda _, kn=key_name, fld=f: self._validate_key(kn, fld.text().strip())
+            )
+
+            # Status dot
+            dot = QLabel("?")
+            dot.setFixedWidth(14)
+            dot.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+            dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            dot.setStyleSheet(
+                f"color:{_DOT_GREY};background:transparent;border:none;"
+            )
+            self._key_dots[key_name] = dot
+
+            row.addWidget(lbl)
+            row.addWidget(f, stretch=1)
+            row.addWidget(test_btn)
+            row.addWidget(dot)
             lay.addLayout(row)
             self._fields[key_name] = f
 
