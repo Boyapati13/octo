@@ -1048,7 +1048,7 @@ class OctoLive:
                     "replay_start":      ("replay_start",             {}),
                     "replay_stop":       ("replay_stop",              {}),
                     # Health / launch — fix CDP connection
-                    "launch":            ("tv_launch",                {"port": 9222, "kill_existing": True}),
+                    "launch":            None,   # handled below via PowerShell
                     "health_check":      ("tv_health_check",          {}),
                     "discover":          ("tv_discover",              {}),
                 }
@@ -1056,7 +1056,38 @@ class OctoLive:
                 if action not in _TV_ACTION_MAP:
                     result = (f"Unknown TradingView action '{action}'. "
                               f"Available: {', '.join(_TV_ACTION_MAP.keys())}")
+
+                elif action == "launch":
+                    # MSIX (Windows Store) app — must launch via PowerShell
+                    # since the exe is in ACL-protected WindowsApps folder
+                    script = os.path.join(
+                        os.path.dirname(__file__), "scripts", "launch_tradingview.ps1"
+                    )
+                    def _tv_launch_ps():
+                        import subprocess, json as _json
+                        try:
+                            out = subprocess.check_output(
+                                ["powershell", "-ExecutionPolicy", "Bypass",
+                                 "-File", script, "-Port", "9222"],
+                                timeout=25, text=True, stderr=subprocess.STDOUT
+                            ).strip()
+                            self.ui.write_log(f"[TV] launch → {out[-200:]}")
+                            if out.startswith("SUCCESS:"):
+                                return {"success": True, "message": "TradingView launched with CDP on port 9222.", "path": out[8:]}
+                            elif out.startswith("LAUNCHED_NO_CDP:"):
+                                return {"success": True, "message": "TradingView launched but CDP not ready yet — try 'check TradingView' in a few seconds.", "path": out[16:]}
+                            else:
+                                return {"success": False, "error": out[-300:]}
+                        except subprocess.TimeoutExpired:
+                            return {"success": True, "message": "TradingView is starting up — CDP may take a few more seconds."}
+                        except Exception as ex:
+                            return {"success": False, "error": str(ex)}
+                    r = await loop.run_in_executor(None, _tv_launch_ps)
+                    result = r or "Launching TradingView…"
+                    self.ui.write_log(f"[TV] launch result: {str(result)[:200]}")
+
                 else:
+                    # All other TV actions — call via MCP bridge
                     tool_name, base_args = _TV_ACTION_MAP[action]
                     # Merge base args with any user-supplied args (user args win)
                     call_args = {**base_args}
@@ -1069,7 +1100,6 @@ class OctoLive:
                     def _tv_call(tn=tool_name, ca=call_args):
                         from agent.mcp_bridge import call_tool, _registry
                         if "tradingview" not in _registry:
-                            # Auto-connect
                             from agent.mcp_bridge import start_all
                             start_all()
                         return call_tool("tradingview", tn, ca)
