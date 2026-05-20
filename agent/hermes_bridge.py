@@ -213,41 +213,143 @@ def create_cron_job(prompt: str, schedule: str, label: str = "") -> dict | None:
 
 # ── Gateway ───────────────────────────────────────────────────────────────────
 
-_gateway_manager: Optional[object] = None
+import asyncio
+
+_gateway_loop: Optional[asyncio.AbstractEventLoop] = None
+_gateway_thread: Optional[threading.Thread] = None
 _gateway_lock = threading.Lock()
 
 
+def _get_running_service():
+    """Return ChannelService singleton if already started (e.g. by uvicorn)."""
+    try:
+        from channels.service import get_channel_service
+        return get_channel_service()
+    except Exception:
+        return None
+
+
+def _patch_message_bus(bus, on_message: Callable) -> None:
+    """Monkey-patch bus.publish_inbound to forward messages to GUI callback."""
+    if getattr(bus, "_octo_gui_patched", False):
+        return
+    original = bus.publish_inbound
+
+    async def _patched(msg):
+        await original(msg)
+        try:
+            on_message(msg.channel_name, msg.user_id, msg.text)
+        except Exception:
+            pass
+
+    bus.publish_inbound = _patched
+    bus._octo_gui_patched = True
+
+
+def _running_channel_names() -> list[str]:
+    svc = _get_running_service()
+    if not svc:
+        return []
+    status = svc.get_status()
+    if not status.get("service_running"):
+        return []
+    return [name for name, info in status.get("channels", {}).items() if info.get("running")]
+
+
 def get_gateway():
-    global _gateway_manager
-    with _gateway_lock:
-        if _gateway_manager is None:
-            try:
-                from channels.manager import ChannelManager  # type: ignore
-                _gateway_manager = ChannelManager()
-                log.info("[Gateway] ChannelManager initialised")
-            except Exception as e:
-                log.debug("[Gateway] init: %s", e)
-    return _gateway_manager
+    """Return the singleton ChannelService if running, else None."""
+    return _get_running_service()
 
 
 def start_gateway(on_message: Callable | None = None) -> list:
-    mgr = get_gateway()
-    if not mgr:
-        return []
-    if on_message:
-        mgr.on_message(on_message)
-    return mgr.start_all()
+    """Start the IM channel service and return list of running channel names."""
+    global _gateway_loop, _gateway_thread
+
+    # 1. Already running (e.g. started by uvicorn gateway thread)
+    svc = _get_running_service()
+    if svc and svc.get_status().get("service_running"):
+        log.info("[Gateway] ChannelService already running")
+        if on_message:
+            _patch_message_bus(svc.bus, on_message)
+        return _running_channel_names()
+
+    # 2. Start in dedicated background thread
+    with _gateway_lock:
+        if _gateway_thread is not None and _gateway_thread.is_alive():
+            return _running_channel_names()
+
+        loop = asyncio.new_event_loop()
+        _gateway_loop = loop
+
+        def _run():
+            asyncio.set_event_loop(loop)
+            try:
+                from channels.service import start_channel_service
+                from deerflow.config.app_config import get_app_config
+                try:
+                    app_config = get_app_config()
+                except Exception as e:
+                    log.warning("[Gateway] config.yaml not found (%s); starting with empty channels", e)
+                    app_config = None
+
+                async def _start():
+                    started_svc = await start_channel_service(app_config)
+                    if on_message:
+                        _patch_message_bus(started_svc.bus, on_message)
+                    log.info("[Gateway] ChannelService started: %s", started_svc.get_status())
+
+                loop.run_until_complete(_start())
+                loop.run_forever()
+            except Exception as exc:
+                log.error("[Gateway] background thread failed: %s", exc, exc_info=True)
+
+        _gateway_thread = threading.Thread(target=_run, name="octo-channel-svc", daemon=True)
+        _gateway_thread.start()
+
+    # Wait up to 5 s for the service to come up
+    import time as _time
+    for _ in range(50):
+        _time.sleep(0.1)
+        svc = _get_running_service()
+        if svc and svc.get_status().get("service_running"):
+            break
+
+    return _running_channel_names()
 
 
 def send_via_gateway(channel: str, user_id: str, text: str) -> None:
-    mgr = get_gateway()
-    if mgr:
-        mgr.send(channel, user_id, text)
+    """Send an outbound message to a channel via the ChannelService."""
+    svc = _get_running_service()
+    if not svc:
+        return
+    try:
+        from channels.message_bus import OutboundMessage
+        msg = OutboundMessage(
+            channel_name=channel,
+            chat_id=user_id,
+            thread_id="direct",
+            text=text,
+            is_final=True,
+        )
+        bus = svc.bus
+        # Use the event loop where ChannelService was started (if available)
+        loop = getattr(svc, "loop", None) or _gateway_loop
+        if loop is None or not loop.is_running():
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # No running loop, run synchronously
+                asyncio.run(bus.publish_outbound(msg))
+                return
+        asyncio.run_coroutine_threadsafe(bus.publish_outbound(msg), loop)
+    except Exception as e:
+        log.warning("[Gateway] send_via_gateway: %s", e)
 
 
 def gateway_status() -> dict:
-    mgr = get_gateway()
-    return mgr.status() if mgr else {}
+    """Return the full ChannelService status dict."""
+    svc = _get_running_service()
+    return svc.get_status() if svc else {}
 
 
 # ── Backward-compat aliases ───────────────────────────────────────────────────
@@ -262,18 +364,10 @@ run_with_hermes   = run_extended
 
 def write_gateway_config(cfg: dict) -> None:
     """
-    Push gateway config into the embedded ChannelManager.
-    Called by config_manager and gateway_page when settings are saved.
+    Update active channel configs and restart changed channels.
+    cfg format: {"telegram": {"bot_token": "...", "enabled": true}, ...}
     """
-    try:
-        from channels.manager import ChannelManager   # type: ignore
-        mgr = get_gateway()
-        if mgr and hasattr(mgr, "update_config"):
-            mgr.update_config(cfg)
-    except Exception as e:
-        log.debug("[Gateway] write_gateway_config: %s", e)
-
-    # Also persist to env vars for DeerFlow channel drivers
+    # Persist to env vars so DeerFlow channel drivers pick them up
     for platform, platform_cfg in cfg.items():
         if not isinstance(platform_cfg, dict):
             continue
@@ -281,6 +375,29 @@ def write_gateway_config(cfg: dict) -> None:
         for key, val in platform_cfg.items():
             if val and isinstance(val, str):
                 os.environ[f"{prefix}_{key.upper()}"] = val
+
+    # Push into running ChannelService and restart affected channels
+    svc = _get_running_service()
+    if not svc:
+        return
+    loop = getattr(svc, "loop", None) or _gateway_loop
+    if loop is None or not loop.is_running():
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # Run synchronously if no event loop running
+            for name, channel_cfg in cfg.items():
+                if not isinstance(channel_cfg, dict):
+                    continue
+                svc._config[name] = {**svc._config.get(name, {}), **channel_cfg}
+                asyncio.run(svc.restart_channel(name))
+            return
+
+    for name, channel_cfg in cfg.items():
+        if not isinstance(channel_cfg, dict):
+            continue
+        svc._config[name] = {**svc._config.get(name, {}), **channel_cfg}
+        asyncio.run_coroutine_threadsafe(svc.restart_channel(name), loop)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

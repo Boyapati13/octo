@@ -18,13 +18,13 @@ if TYPE_CHECKING:
 
 # Channel name → import path for lazy loading
 _CHANNEL_REGISTRY: dict[str, str] = {
-    "dingtalk": "app.channels.dingtalk:DingTalkChannel",
-    "discord": "app.channels.discord:DiscordChannel",
-    "feishu": "app.channels.feishu:FeishuChannel",
-    "slack": "app.channels.slack:SlackChannel",
-    "telegram": "app.channels.telegram:TelegramChannel",
-    "wechat": "app.channels.wechat:WechatChannel",
-    "wecom": "app.channels.wecom:WeComChannel",
+    "dingtalk": "channels.dingtalk:DingTalkChannel",
+    "discord": "channels.discord:DiscordChannel",
+    "feishu": "channels.feishu:FeishuChannel",
+    "slack": "channels.slack:SlackChannel",
+    "telegram": "channels.telegram:TelegramChannel",
+    "wechat": "channels.wechat:WechatChannel",
+    "wecom": "channels.wecom:WeComChannel",
 }
 
 # Keys that indicate a user has configured credentials for a channel.
@@ -78,6 +78,7 @@ class ChannelService:
         self._channels: dict[str, Any] = {}  # name -> Channel instance
         self._config = config
         self._running = False
+        self.loop = None
 
     @classmethod
     def from_app_config(cls, app_config: AppConfig | None = None) -> ChannelService:
@@ -98,6 +99,8 @@ class ChannelService:
         if self._running:
             return
 
+        import asyncio
+        self.loop = asyncio.get_running_loop()
         await self.manager.start()
 
         for name, channel_config in self._config.items():

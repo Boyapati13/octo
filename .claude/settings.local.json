@@ -40,7 +40,29 @@
       "Read(//c/Users/Tenders/octo/**)",
       "Bash(py -m pip install -e . --quiet)",
       "PowerShell(py -c \"from run_agent import AIAgent; from cron.jobs import list_jobs, create_job; print\\('AIAgent OK | cron OK'\\)\")",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Skill(investigate)",
+      "Skill(investigate:*)",
+      "Skill(gstack-upgrade)",
+      "Skill(gstack-upgrade:*)",
+      "Bash(where python3.12)",
+      "Bash(where python *)",
+      "Bash(py --version)",
+      "Bash(\"C:\\\\Users\\\\Tenders\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.12-64\\\\python.exe\" --version)",
+      "Bash(set PYTHONUTF8=1)",
+      "Bash(set PYTHONIOENCODING=utf-8)",
+      "Bash(start \"\" /B \"C:\\\\Users\\\\Tenders\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.12-64\\\\python.exe\" main.py)",
+      "Bash(\"C:\\\\Users\\\\Tenders\\\\AppData\\\\Local\\\\Python\\\\bin\\\\python3.12.exe\" --version)",
+      "Read(//c/Users/Tenders/AppData/Local/Python/pythoncore-3.12-64\" 2>/dev/**)",
+      "Bash(python3.12 -c \"import PyQt6; print\\('PyQt6 OK'\\)\")",
+      "Bash(python3.12 -c \"import sounddevice; print\\('sounddevice OK'\\)\")",
+      "Bash(python3.12 -c \"import google.genai; print\\('genai OK'\\)\")",
+      "Bash(python3.12 main.py)",
+      "Bash(echo \"PID: $!\")",
+      "Bash(PYTHONUTF8=1 PYTHONIOENCODING=utf-8 python3.12 main.py)",
+      "Bash(py -c ' *)"
     ]
   }
 }

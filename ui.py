@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import math
@@ -859,7 +859,7 @@ class _DropCanvas(QWidget):
         p.setFont(QFont("Courier New", 6))
         p.setPen(QPen(qcol("#1e5c6a"), 1))
         par = str(path.parent)
-        if len(par) > 42: par = "…" + par[-41:]
+        if len(par) > 42: par = "..." + par[-41:]
         p.drawText(QRectF(tx, H * 0.18 + 34, tw, 12),
                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, par)
 
@@ -919,7 +919,7 @@ class SetupOverlay(QWidget):
                                align=Qt.AlignmentFlag.AlignLeft))
         self._key_input = QLineEdit()
         self._key_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self._key_input.setPlaceholderText("AIza…")
+        self._key_input.setPlaceholderText("AIza...")
         self._key_input.setFont(QFont("Courier New", 10))
         self._key_input.setFixedHeight(32)
         self._key_input.setStyleSheet(f"""
@@ -1115,7 +1115,7 @@ class SettingsOverlay(QWidget):
         ai = QVBoxLayout(self._ai_panel); ai.setContentsMargins(0,4,0,0); ai.setSpacing(5)
 
         ai.addWidget(self._lbl("GEMINI API KEY", 8, color=C.TEXT_DIM))
-        self._key_f = self._field("AIza…", echo=True, val=cfg.get("gemini_api_key", ""))
+        self._key_f = self._field("AIza...", echo=True, val=cfg.get("gemini_api_key", ""))
         ai.addWidget(self._key_f)
 
         gm_row = QHBoxLayout(); gm_row.setSpacing(6)
@@ -1163,7 +1163,7 @@ class SettingsOverlay(QWidget):
         det.clicked.connect(self._detect_models)
         url_row.addWidget(self._ollama_url_f, stretch=3); url_row.addWidget(det)
         ai.addLayout(url_row)
-        self._ollama_mod_f = self._field("auto  (e.g. gemma3, llama3.2…)", val=cfg.get("ollama_model",""))
+        self._ollama_mod_f = self._field("auto  (e.g. gemma3, llama3.2...)", val=cfg.get("ollama_model",""))
         ai.addWidget(self._ollama_mod_f)
         self._detected_lbl = self._lbl("", 7, color=C.GREEN)
         ai.addWidget(self._detected_lbl)
@@ -1228,8 +1228,8 @@ class SettingsOverlay(QWidget):
 
         inner_lay.addWidget(self._sep())
         _platform_block("slack",     "SLACK",
-            [("token","Bot token  xoxb-…",True),
-             ("api_key","App-level token  xapp-…",True),
+            [("token","Bot token  xoxb-...",True),
+             ("api_key","App-level token  xapp-...",True),
              ("allowed_users","Slack member IDs  (comma-separated)",False)],
             "api.slack.com/apps → OAuth & Permissions  |  Settings → Socket Mode → xapp token")
 
@@ -1478,7 +1478,7 @@ class SettingsOverlay(QWidget):
         import threading
         # Save first
         self._save()
-        self._gw_status_lbl.setText("Gateway: starting…")
+        self._gw_status_lbl.setText("Gateway: starting...")
         self._gw_status_lbl.setStyleSheet(f"color:{C.ACC2};background:transparent;")
 
         def _run():
@@ -1505,7 +1505,7 @@ class SettingsOverlay(QWidget):
         if not key:
             self._gm_detect_lbl.setText("Enter API key first.")
             return
-        self._gm_detect_btn.setText("Detecting…")
+        self._gm_detect_btn.setText("Detecting...")
         self._gm_detect_btn.setEnabled(False)
         QApplication.processEvents()
 
@@ -1566,7 +1566,7 @@ class ChatWidget(QWidget):
         import html as _h
         self._append(f'<div style="color:{C.ACC2};margin:2px 0"><b>You:</b> {_h.escape(text)}</div>')
         self._history.append({"role": "user", "content": text})
-        self._append(f'<div style="color:{C.TEXT_DIM};margin:2px 0"><i>OCTO: thinking…</i></div>')
+        self._append(f'<div style="color:{C.TEXT_DIM};margin:2px 0"><i>OCTO: thinking...</i></div>')
         threading.Thread(target=self._fetch, args=(text,), daemon=True).start()
 
     def _fetch(self, text: str):
@@ -2287,9 +2287,9 @@ class MainWindow(QMainWindow):
         self._code_widget.setVisible(name == "CODE")
         self._proj_widget.setVisible(name == "PROJ")
         hints = {
-            "LOG":  "Type a command or question…",
-            "CHAT": "Chat with OCTO…",
-            "CODE": "Ask about code…",
+            "LOG":  "Type a command or question...",
+            "CHAT": "Chat with OCTO...",
+            "CODE": "Ask about code...",
             "PROJ": "",
         }
         self._input.setPlaceholderText(hints.get(name, ""))
@@ -2298,7 +2298,7 @@ class MainWindow(QMainWindow):
     def _build_input_row(self) -> QHBoxLayout:
         row = QHBoxLayout(); row.setSpacing(5)
         self._input = QLineEdit()
-        self._input.setPlaceholderText("Type a command or question…")
+        self._input.setPlaceholderText("Type a command or question...")
         self._input.setFont(QFont("Courier New", 9))
         self._input.setFixedHeight(30)
         self._input.setStyleSheet(f"""

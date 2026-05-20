@@ -1,0 +1,51 @@
+
+# OCTO-Pro — DeerFlow configuration
+# Generated automatically. Edit tokens here to enable IM channels.
+config_version: 1
+log_level: info
+
+# ── Sandbox (code execution) ─────────────────────────────────────────────────
+sandbox:
+  use: deerflow.sandbox.local:LocalSandboxProvider
+  allow_host_bash: true
+
+# ── Database (thread / run persistence) ──────────────────────────────────────
+database:
+  backend: sqlite
+  sqlite_dir: .deer-flow/data
+
+# ── Models (routed through the OCTO model proxy on :8082) ────────────────────
+models:
+  - name: gemini-2.5-flash
+    display_name: "Gemini 2.5 Flash"
+    use: deerflow.models.patched_openai:PatchedChatOpenAI
+    model: gemini-2.5-flash-preview-04-17
+    api_key: $GEMINI_API_KEY
+    base_url: http://127.0.0.1:8082/v1
+    max_tokens: 8192
+    supports_vision: true
+
+  - name: gemini-2.5-pro
+    display_name: "Gemini 2.5 Pro (Thinking)"
+    use: deerflow.models.patched_openai:PatchedChatOpenAI
+    model: gemini-2.5-pro-preview-05-06
+    api_key: $GEMINI_API_KEY
+    base_url: http://127.0.0.1:8082/v1
+    max_tokens: 16384
+    supports_thinking: true
+    supports_vision: true
+
+# ── IM Channels (set enabled: true + fill token to activate) ─────────────────
+channels:
+  telegram:
+    enabled: false
+    bot_token: ""          # e.g. "8697148543:AAF..."
+
+  discord:
+    enabled: false
+    bot_token: ""          # Discord bot token
+
+  slack:
+    enabled: false
+    bot_token: ""          # xoxb-...
+    app_token: ""          # xapp-...

@@ -347,6 +347,19 @@ def _load_and_cache_app_config(config_path: str | None = None) -> AppConfig:
     """Load config from disk and refresh cache metadata."""
     global _app_config, _app_config_path, _app_config_mtime, _app_config_is_custom
 
+    if "GEMINI_API_KEY" not in os.environ:
+        try:
+            import json
+            from pathlib import Path
+            api_keys_path = Path(__file__).parents[2] / "config" / "api_keys.json"
+            if api_keys_path.exists():
+                with open(api_keys_path, "r", encoding="utf-8") as f:
+                    key = json.load(f).get("gemini_api_key", "")
+                    if key:
+                        os.environ["GEMINI_API_KEY"] = key
+        except Exception:
+            pass
+
     resolved_path = AppConfig.resolve_config_path(config_path)
     _app_config = AppConfig.from_file(str(resolved_path))
     _app_config_path = resolved_path
