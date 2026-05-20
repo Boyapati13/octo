@@ -134,18 +134,25 @@ class McpPage(OctoPage):
         # 1. Read config file
         for s in _load_mcp_json():
             name = s.get("name", "unknown")
-            servers.append({"name": name, "status": "configured",
-                            "command": s.get("command", ""),
-                            "url": s.get("url", "")})
+            servers.append({
+                "name":    name,
+                "status":  "configured",
+                "command": s.get("command", ""),
+                "url":     s.get("url", ""),
+                "label":   s.get("label", name),
+                "icon":    s.get("icon", "🔌"),
+                "desc":    s.get("description", ""),
+                "n_tools": 0,
+            })
 
         # 2. Enrich with live tool counts from mcp_bridge
         try:
-            from agent.mcp_bridge import get_all_tools
-            tools = get_all_tools()
-            tool_names = {t.get("server", "") for t in tools}
+            from agent.mcp_bridge import _registry
             for s in servers:
-                if s["name"] in tool_names:
-                    s["status"] = "connected"
+                entry = _registry.get(s["name"])
+                if entry:
+                    s["status"]  = "connected"
+                    s["n_tools"] = len(entry.get("tools", []))
         except Exception:
             pass
 
@@ -164,26 +171,85 @@ class McpPage(OctoPage):
             return
 
         for s in servers:
-            name   = s.get("name", "unknown")
-            status = s.get("status", "configured")
-            cmd    = s.get("command", "") or s.get("url", "")
-            color  = GREEN if status == "connected" else TEXT_DIM
+            name    = s.get("name", "unknown")
+            label   = s.get("label", name)
+            status  = s.get("status", "configured")
+            n_tools = s.get("n_tools", 0)
+            icon    = s.get("icon", "🔌")
+            desc    = s.get("desc", "") or s.get("command", "") or s.get("url", "")
+            connected = status == "connected"
+            dot_col = GREEN if connected else TEXT_DIM
+            border  = f"border:1px solid {GREEN}44;" if connected else f"border:1px solid {BORDER};"
 
             card = QWidget()
-            card.setStyleSheet(f"background:{PANEL};border:1px solid {BORDER};border-radius:3px;")
-            cl = QHBoxLayout(card); cl.setContentsMargins(10, 6, 10, 6); cl.setSpacing(8)
-            cl.addWidget(self.lbl("●", 10, color=color))
+            card.setStyleSheet(
+                f"background:{PANEL};{border}border-radius:4px;"
+            )
+            cl = QHBoxLayout(card)
+            cl.setContentsMargins(10, 8, 10, 8)
+            cl.setSpacing(8)
 
-            info = QVBoxLayout(); info.setSpacing(1)
-            info.addWidget(self.lbl(name, 9, bold=True, color=WHITE))
-            info.addWidget(self.lbl(cmd[:60], 7, color=TEXT_DIM))
+            # Status dot
+            dot_lbl = self.lbl("●", 12, color=dot_col)
+            cl.addWidget(dot_lbl)
+
+            # Info column
+            info = QVBoxLayout(); info.setSpacing(2)
+            title_row = QHBoxLayout(); title_row.setSpacing(6)
+            title_row.addWidget(self.lbl(f"{icon}  {label}", 9, bold=True, color=WHITE))
+            if connected:
+                badge = self.lbl(f"{n_tools} tools", 7, color=GREEN)
+                badge.setStyleSheet(
+                    f"color:{GREEN};background:#002211;border:1px solid {GREEN}44;"
+                    f"border-radius:3px;padding:1px 5px;"
+                )
+                title_row.addWidget(badge)
+            title_row.addStretch()
+            info.addLayout(title_row)
+            if desc:
+                info.addWidget(self.lbl(desc[:70], 7, color=TEXT_DIM))
             cl.addLayout(info, stretch=1)
 
-            cl.addWidget(self.lbl(status.upper(), 7, color=color))
-            rm = self.btn("✕ Remove", color=RED, height=24)
+            # Status label
+            status_lbl = self.lbl(
+                "● LIVE" if connected else "○ OFFLINE",
+                7, color=dot_col
+            )
+            cl.addWidget(status_lbl)
+
+            # Reconnect button
+            def _reconnect(checked=False, _name=name):
+                self._add_msg.setText(f"Connecting {_name}…")
+                def _run():
+                    try:
+                        from agent.mcp_bridge import _load_config, _connect_server, _registry
+                        _registry.pop(_name, None)   # clear stale entry
+                        cfgs = _load_config()
+                        cfg  = next((c for c in cfgs if c.get("name") == _name), None)
+                        if cfg:
+                            _connect_server(cfg)
+                            self._add_msg.setText(f"✓ {_name} reconnected")
+                        else:
+                            self._add_msg.setText(f"✗ {_name} not found in config")
+                    except Exception as ex:
+                        self._add_msg.setText(str(ex)[:60])
+                    self._load()
+                __import__("threading").Thread(target=_run, daemon=True).start()
+
+            recon_b = self.btn("⟳", color=ACC2, height=24)
+            recon_b.setFixedWidth(28)
+            recon_b.setToolTip(f"Reconnect {name}")
+            recon_b.clicked.connect(_reconnect)
+            cl.addWidget(recon_b)
+
+            rm = self.btn("✕", color=RED, height=24)
+            rm.setFixedWidth(28)
+            rm.setToolTip(f"Remove {name}")
             rm.clicked.connect(lambda _, n=name: self._remove(n))
             cl.addWidget(rm)
+
             self._servers_layout.addWidget(card)
+
 
     def _add_server(self):
         name = self._name_f.text().strip()

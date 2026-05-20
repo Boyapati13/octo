@@ -643,6 +643,42 @@ TOOL_DECLARATIONS = [
             "required": ["name"]
         }
     },
+    {
+        "name": "tradingview_mcp",
+        "description": (
+            "Controls your live TradingView Desktop chart via 79 MCP tools. "
+            "Use for ANY TradingView or chart request: reading chart state/symbol/timeframe, "
+            "RSI/MACD/BB/EMA values, Pine Script, alerts, screenshots of chart, drawings, "
+            "replay, watchlist, indicators, pane layout. "
+            "ALWAYS call this for any TradingView question. NEVER say you cannot see the chart."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {
+                    "type": "STRING",
+                    "description": (
+                        "chart_state | indicator_values | screenshot | price | ohlcv | "
+                        "set_symbol | set_timeframe | add_indicator | remove_indicator | "
+                        "pine_get | pine_set | pine_compile | "
+                        "create_alert | list_alerts | draw | watchlist | "
+                        "pane_layout | tab_list | replay_start | replay_stop"
+                    )
+                },
+                "symbol":      {"type": "STRING", "description": "Ticker e.g. BTCUSDT, AAPL"},
+                "timeframe":   {"type": "STRING", "description": "Resolution e.g. 1 5 15 60 D W"},
+                "indicator":   {"type": "STRING", "description": "Full name e.g. 'Relative Strength Index'"},
+                "code":        {"type": "STRING", "description": "Pine Script source code"},
+                "region":      {"type": "STRING", "description": "screenshot region: full | chart | strategy_tester"},
+                "price_level": {"type": "NUMBER", "description": "Price level for drawings/alerts"},
+                "message":     {"type": "STRING", "description": "Alert message text"},
+                "layout":      {"type": "STRING", "description": "Pane layout: s | 2h | 2v | 4"},
+                "study_filter":{"type": "STRING", "description": "Filter Pine output by indicator name"},
+                "summary":     {"type": "BOOLEAN", "description": "Use summary mode for OHLCV (default true)"},
+            },
+            "required": ["action"]
+        }
+    },
 ]
 
 class OctoLive:
@@ -755,6 +791,30 @@ class OctoLive:
                     f"All file operations and terminal commands default to this root unless overridden. "
                     f"Desc: {proj.get('desc','')}\n\n"
                 )
+        except Exception:
+            pass
+
+        # ── MCP context — tells Gemini which servers are live ─────────────────
+        try:
+            from agent.mcp_bridge import list_servers, get_all_tools
+            connected = [s for s in list_servers() if s["connected"]]
+            if connected:
+                mcp_lines = ["[CONNECTED MCP SERVERS]"]
+                all_tools = get_all_tools()
+                for srv in connected:
+                    srv_tools = [t["name"] for t in all_tools
+                                 if t.get("mcp_server") == srv["name"]][:20]
+                    mcp_lines.append(
+                        f"• {srv['name']}  ({srv['tools']} tools) — "
+                        f"use mcp_tool_call with server='{srv['name']}'. "
+                        f"Key tools: {', '.join(srv_tools[:8])}"
+                    )
+                mcp_lines.append(
+                    "IMPORTANT: When user asks about TradingView, chart, RSI, MACD, Pine Script, "
+                    "indicators, alerts, screenshot of chart, or any trading concept — "
+                    "call tradingview_mcp tool directly. Never say you are not connected."
+                )
+                parts.append("\n".join(mcp_lines) + "\n")
         except Exception:
             pass
 
@@ -958,6 +1018,59 @@ class OctoLive:
                 self.ui.write_log(f"[OCTO] 🗂 set_project: {proj_name or '(deactivate)'}")
                 r = await loop.run_in_executor(None, lambda pn=proj_name: self._do_set_project(pn))
                 result = r or "Project updated."
+
+            elif name == "tradingview_mcp":
+                action = args.get("action", "chart_state")
+                self.ui.write_log(f"[OCTO] 📈 tradingview_mcp:{action}  {args}")
+
+                # Map friendly action names → real TradingView MCP tool names
+                _TV_ACTION_MAP = {
+                    "chart_state":       ("chart_get_state",         {}),
+                    "indicator_values":  ("data_get_study_values",   {"summary": True}),
+                    "screenshot":        ("capture_screenshot",       {"region": args.get("region", "chart")}),
+                    "price":             ("quote_get",                {}),
+                    "ohlcv":             ("data_get_ohlcv",           {"summary": args.get("summary", True)}),
+                    "set_symbol":        ("chart_set_symbol",         {"symbol": args.get("symbol", "")}),
+                    "set_timeframe":     ("chart_set_timeframe",      {"timeframe": args.get("timeframe", "")}),
+                    "add_indicator":     ("chart_manage_indicator",   {"action": "add", "indicator_name": args.get("indicator", "")}),
+                    "remove_indicator":  ("chart_manage_indicator",   {"action": "remove", "indicator_name": args.get("indicator", "")}),
+                    "pine_get":          ("pine_get_source",          {}),
+                    "pine_set":          ("pine_set_source",          {"source": args.get("code", "")}),
+                    "pine_compile":      ("pine_smart_compile",       {}),
+                    "create_alert":      ("alert_create",             {"name": "OCTO Alert", "condition": args.get("message", ""), "frequency": "once"}),
+                    "list_alerts":       ("alert_list",               {}),
+                    "draw":              ("draw_shape",               {"type": "horizontal_line", "price": args.get("price_level", 0)}),
+                    "watchlist":         ("watchlist_get",            {}),
+                    "pane_layout":       ("pane_set_layout",          {"layout": args.get("layout", "s")}),
+                    "tab_list":          ("tab_list",                 {}),
+                    "replay_start":      ("replay_start",             {}),
+                    "replay_stop":       ("replay_stop",              {}),
+                }
+
+                if action not in _TV_ACTION_MAP:
+                    result = (f"Unknown TradingView action '{action}'. "
+                              f"Available: {', '.join(_TV_ACTION_MAP.keys())}")
+                else:
+                    tool_name, base_args = _TV_ACTION_MAP[action]
+                    # Merge base args with any user-supplied args (user args win)
+                    call_args = {**base_args}
+                    for k in ("symbol", "timeframe", "indicator", "code",
+                              "region", "price_level", "message", "layout",
+                              "study_filter", "summary"):
+                        if args.get(k) is not None:
+                            call_args[k] = args[k]
+
+                    def _tv_call(tn=tool_name, ca=call_args):
+                        from agent.mcp_bridge import call_tool, _registry
+                        if "tradingview" not in _registry:
+                            # Auto-connect
+                            from agent.mcp_bridge import start_all
+                            start_all()
+                        return call_tool("tradingview", tn, ca)
+
+                    r = await loop.run_in_executor(None, _tv_call)
+                    result = r or "Done."
+                    self.ui.write_log(f"[TV] {tool_name} → {str(result)[:200]}")
 
             else:
                 result = f"Unknown tool: {name}"
