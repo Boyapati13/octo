@@ -1820,8 +1820,10 @@ class MainWindow(QMainWindow):
         from ui_pages.tools_page     import ToolsPage
         from ui_pages.mcp_page       import McpPage
         from ui_pages.skills_page    import SkillsPage
+        from ui_pages.proxy_page     import ProxyPage
 
-        for name, cls in [("memory",    MemoryPage),
+        for name, cls in [("proxy",     ProxyPage),
+                           ("memory",    MemoryPage),
                            ("skills",    SkillsPage),
                            ("scheduler", SchedulerPage),
                            ("gateway",   GatewayPage),
@@ -2038,7 +2040,7 @@ class MainWindow(QMainWindow):
         if page == "home":
             self._center_stack.setCurrentIndex(0)
         else:
-            page_order = ["memory", "skills", "scheduler", "gateway", "tools", "mcp"]
+            page_order = ["proxy", "memory", "skills", "scheduler", "gateway", "tools", "mcp"]
             if page in page_order:
                 self._center_stack.setCurrentIndex(page_order.index(page) + 1)
 
@@ -2076,6 +2078,7 @@ class MainWindow(QMainWindow):
 
         _NAV_ITEMS = [
             ("home",      "🏠  HOME"),
+            ("proxy",     "⚡  PROXY"),
             ("memory",    "💾  MEMORY"),
             ("skills",    "📚  CAPABILITIES"),
             ("scheduler", "⏰  SCHEDULER"),
