@@ -34,9 +34,15 @@ def _alias_package(real_path: Path, alias: str) -> None:
     registering a sys.modules shim so 'import alias' finds real_path's __init__."""
     _ensure_path(real_path.parent)
     real_name = real_path.name
-    # If the real package is already importable under its real name, alias it
+    # Overwrite sys.modules entry if it doesn't point to our expected real_path
     if alias in sys.modules:
-        return
+        existing = sys.modules[alias]
+        existing_path = getattr(existing, "__file__", "") or ""
+        existing_paths = getattr(existing, "__path__", []) or []
+        is_correct = (str(real_path) in existing_path or 
+                      any(str(real_path) in str(p) for p in existing_paths))
+        if is_correct:
+            return
     try:
         real_mod = importlib.import_module(real_name)
         sys.modules[alias] = real_mod

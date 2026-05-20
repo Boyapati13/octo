@@ -56,7 +56,7 @@ def _start_proxy(host: str = PROXY_HOST, port: int = PROXY_PORT) -> threading.Th
             import uvicorn
             # Wire all proxy internal imports BEFORE importing the app
             sys.path.insert(0, str(ROOT / "proxy"))
-            import proxy.proxy_path_shim  # noqa: F401  — side-effect: sets up aliases
+            import proxy_path_shim  # noqa: F401  — side-effect: sets up aliases
             from proxy.app import create_asgi_app  # type: ignore
             app = create_asgi_app()
             log.info("🔌 Proxy starting on http://%s:%d", host, port)
