@@ -1335,25 +1335,16 @@ class SettingsOverlay(QWidget):
 
         root.addWidget(self._lbl("⚙  OCTO SETTINGS", 12, True, C.PRI,
                             Qt.AlignmentFlag.AlignCenter))
+        root.addWidget(self._lbl(
+            "Gear = AI core config only.  Use nav pages for Proxy & Gateway.",
+            7, color=C.TEXT_DIM, align=Qt.AlignmentFlag.AlignCenter))
 
-        tab_row = QHBoxLayout(); tab_row.setSpacing(4)
-        self._stab_btns: dict[str, QPushButton] = {}
-        for name in ["AI", "PROXY", "GATEWAY"]:
-            b = QPushButton(name); b.setCheckable(True)
-            b.setChecked(name == "AI"); b.setStyleSheet(_TAB_SS)
-            b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.clicked.connect(lambda _, n=name: self._switch_stab(n))
-            tab_row.addWidget(b); self._stab_btns[name] = b
-        tab_row.addStretch()
-        root.addLayout(tab_row)
+        # Settings has only the AI tab now — Proxy/Gateway live in their own nav pages
         root.addWidget(self._sep())
 
     def _build_footer(self, root: QVBoxLayout):
-        root.addWidget(self._ai_panel,    stretch=1)
-        root.addWidget(self._proxy_panel, stretch=1)
-        root.addWidget(self._gw_panel,    stretch=1)
-        self._proxy_panel.hide()
-        self._gw_panel.hide()
+        # Only AI panel shown — proxy/gateway duplication removed
+        root.addWidget(self._ai_panel, stretch=1)
 
         root.addWidget(self._sep())
         btn_row2 = QHBoxLayout(); btn_row2.setSpacing(8)
@@ -1393,11 +1384,8 @@ class SettingsOverlay(QWidget):
         self._build_footer(root)
 
     def _switch_stab(self, name: str):
-        for n, b in self._stab_btns.items():
-            b.setChecked(n == name)
-        self._ai_panel.setVisible(name == "AI")
-        self._proxy_panel.setVisible(name == "PROXY")
-        self._gw_panel.setVisible(name == "GATEWAY")
+        """No-op — AI-only gear overlay, no tabs needed."""
+        pass
 
     # ── interactions ──────────────────────────────────────────────────────────
     def _sel_model(self, key: str):
@@ -1827,6 +1815,7 @@ class MainWindow(QMainWindow):
         from ui_pages.mcp_page       import McpPage
         from ui_pages.skills_page    import SkillsPage
         from ui_pages.proxy_page     import ProxyPage
+        from ui_pages.project_page   import ProjectPage
 
         for name, cls in [("proxy",     ProxyPage),
                            ("memory",    MemoryPage),
@@ -1834,7 +1823,8 @@ class MainWindow(QMainWindow):
                            ("scheduler", SchedulerPage),
                            ("gateway",   GatewayPage),
                            ("tools",     ToolsPage),
-                           ("mcp",       McpPage)]:
+                           ("mcp",       McpPage),
+                           ("projects",  ProjectPage)]:
             p = cls()
             self._pages[name] = p
             self._center_stack.addWidget(p)
@@ -2087,7 +2077,8 @@ class MainWindow(QMainWindow):
         if page == "home":
             self._center_stack.setCurrentIndex(0)
         else:
-            page_order = ["proxy", "memory", "skills", "scheduler", "gateway", "tools", "mcp"]
+            page_order = ["proxy", "memory", "skills", "scheduler",
+                          "gateway", "tools", "mcp", "projects"]
             if page in page_order:
                 self._center_stack.setCurrentIndex(page_order.index(page) + 1)
 
@@ -2132,6 +2123,7 @@ class MainWindow(QMainWindow):
             ("gateway",   "🌐  GATEWAY"),
             ("tools",     "🔧  TOOLS"),
             ("mcp",       "🔌  MCP"),
+            ("projects",  "🗂  PROJECTS"),
         ]
 
         self._nav_btns: dict[str, QPushButton] = {}

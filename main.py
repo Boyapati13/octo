@@ -39,6 +39,7 @@ from actions.computer_control  import computer_control
 from actions.game_updater      import game_updater
 from actions.deep_research     import deep_research as deep_research_action
 from actions.deerflow_task     import deerflow_task as deerflow_task_action
+from actions.mcp_connect       import mcp_connect, mcp_tool_call, mcp_list
 
 
 def get_base_dir():
@@ -578,6 +579,70 @@ TOOL_DECLARATIONS = [
             "required": ["category", "key", "value"]
         }
     },
+    {
+        "name": "mcp_connect",
+        "description": (
+            "Connect to an MCP (Model Context Protocol) server to gain access to its tools. "
+            "Use when user says 'connect to X MCP', 'add MCP server', or needs tools from an external server. "
+            "Supports both HTTP/SSE servers (url parameter) and stdio servers (command + args). "
+            "If no name specified, connects all configured servers."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "name":    {"type": "STRING", "description": "MCP server name"},
+                "url":     {"type": "STRING", "description": "HTTP/SSE endpoint URL (e.g. https://mcp.example.com/sse)"},
+                "command": {"type": "STRING", "description": "Stdio command (e.g. npx)"},
+                "args":    {"type": "ARRAY",  "items": {"type": "STRING"}, "description": "Args for stdio command"},
+                "token":   {"type": "STRING", "description": "Auth token / API key for the server"},
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "mcp_tool_call",
+        "description": (
+            "Call a specific tool on a connected MCP server. "
+            "Use when user asks OCTO to use a tool from an MCP server (e.g. 'use the filesystem server to read file X'). "
+            "Auto-connects the server if not yet connected. "
+            "All extra parameters beyond 'server' and 'tool' are passed as tool arguments."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "server": {"type": "STRING", "description": "MCP server name"},
+                "tool":   {"type": "STRING", "description": "Tool name on the MCP server"},
+                "path":   {"type": "STRING", "description": "File path argument (common)"},
+                "query":  {"type": "STRING", "description": "Query/search argument (common)"},
+                "input":  {"type": "STRING", "description": "Generic input argument"},
+            },
+            "required": ["server", "tool"]
+        }
+    },
+    {
+        "name": "mcp_list",
+        "description": (
+            "List all configured and connected MCP servers and their available tools. "
+            "Use when user asks 'what MCP servers do I have', 'what tools are available', etc."
+        ),
+        "parameters": {"type": "OBJECT", "properties": {}, "required": []}
+    },
+    {
+        "name": "set_project",
+        "description": (
+            "Activate or deactivate a project so OCTO has full access to all its files, "
+            "CMD, PowerShell, and security context for that project root directory. "
+            "Use when user says 'work on project X', 'switch to project Y', 'open my X project'. "
+            "Pass empty string to deactivate all projects."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "name": {"type": "STRING", "description": "Project name to activate (empty string to deactivate all)"}
+            },
+            "required": ["name"]
+        }
+    },
 ]
 
 class OctoLive:
@@ -613,6 +678,34 @@ class OctoLive:
         elif not self.ui.muted:
             self.ui.set_state("LISTENING")
 
+    def _do_set_project(self, name: str) -> str:
+        """Activate or deactivate a project and return a confirmation string."""
+        try:
+            from ui_pages.project_page import set_active_project, _load_projects
+            projects = _load_projects()
+            if name:
+                match = next((p for p in projects if p["name"].lower() == name.lower()), None)
+                if not match:
+                    # Fuzzy match
+                    match = next(
+                        (p for p in projects if name.lower() in p["name"].lower()), None
+                    )
+                if not match:
+                    return (f"No project named '{name}' found. "
+                            f"Available: {', '.join(p['name'] for p in projects) or 'none'}")
+                set_active_project(match["name"])
+                self.speak(f"Activating project {match['name']}, sir.")
+                return (
+                    f"Project '{match['name']}' activated. "
+                    f"OCTO now has full access to {match['path']}."
+                )
+            else:
+                set_active_project(None)
+                self.speak("Project deactivated.")
+                return "Project context cleared."
+        except Exception as e:
+            return f"Project switch failed: {e}"
+
     def speak(self, text: str):
         if not self._loop or not self.session:
             return
@@ -647,6 +740,24 @@ class OctoLive:
         parts = [time_ctx]
         if mem_str:
             parts.append(mem_str)
+
+        # Active project context — gives OCTO full access scope
+        try:
+            from ui_pages.project_page import get_active_project
+            proj = get_active_project()
+            if proj:
+                parts.append(
+                    f"[ACTIVE PROJECT]\n"
+                    f"Name: {proj['name']}\n"
+                    f"Root path: {proj['path']}\n"
+                    f"OCTO has FULL ACCESS to this project: all files, subdirectories, "
+                    f"CMD, PowerShell, and security context. "
+                    f"All file operations and terminal commands default to this root unless overridden. "
+                    f"Desc: {proj.get('desc','')}\n\n"
+                )
+        except Exception:
+            pass
+
         parts.append(sys_prompt)
 
         return types.LiveConnectConfig(
@@ -816,11 +927,37 @@ class OctoLive:
                 result = r or "Research complete."
 
             elif name == "deerflow_task":
+                self.ui.write_log("[OCTO] 🔧 deerflow_task  " + str(args)[:80])
                 r = await loop.run_in_executor(
                     None,
                     lambda: deerflow_task_action(parameters=args, player=self.ui, speak=self.speak)
                 )
                 result = r or "Task complete."
+            elif name == "mcp_connect":
+                self.ui.write_log("[OCTO] 🔌 mcp_connect  " + str(args)[:80])
+                r = await loop.run_in_executor(
+                    None,
+                    lambda: mcp_connect(parameters=args, player=self.ui, speak=self.speak)
+                )
+                result = r or "Connected."
+            elif name == "mcp_tool_call":
+                self.ui.write_log("[OCTO] 🔌 mcp_tool_call  " + str(args)[:80])
+                r = await loop.run_in_executor(
+                    None,
+                    lambda: mcp_tool_call(parameters=args, player=self.ui, speak=self.speak)
+                )
+                result = r or "Done."
+            elif name == "mcp_list":
+                r = await loop.run_in_executor(
+                    None,
+                    lambda: mcp_list(parameters=args, player=self.ui, speak=self.speak)
+                )
+                result = r or "No MCP servers configured."
+            elif name == "set_project":
+                proj_name = args.get("name", "").strip()
+                self.ui.write_log(f"[OCTO] 🗂 set_project: {proj_name or '(deactivate)'}")
+                r = await loop.run_in_executor(None, lambda pn=proj_name: self._do_set_project(pn))
+                result = r or "Project updated."
 
             else:
                 result = f"Unknown tool: {name}"
