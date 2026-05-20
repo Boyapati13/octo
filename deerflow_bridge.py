@@ -119,9 +119,18 @@ def is_embedded() -> bool:
 
 def is_http_running() -> bool:
     try:
-        _http_get("/health", timeout=CONNECT_TIMEOUT); return True
+        # The gateway exposes /health (no /api prefix) and /api/... routes
+        import httpx as _hx
+        r = _hx.get(f"{DEERFLOW_BASE}/health", timeout=CONNECT_TIMEOUT)
+        return r.status_code < 500
     except Exception:
-        return False
+        try:
+            # urllib fallback
+            import urllib.request
+            urllib.request.urlopen(f"{DEERFLOW_BASE}/health", timeout=CONNECT_TIMEOUT)
+            return True
+        except Exception:
+            return False
 
 def is_running() -> bool:
     return is_embedded() or is_http_running()
@@ -138,6 +147,7 @@ def wait_until_ready(timeout: float = 30.0) -> bool:
 
 def new_thread() -> str:
     try:
+        # POST /api/threads → creates a new thread, returns {thread_id: ...}
         r = _http_post("/threads", {})
         return r.get("thread_id") or r.get("id") or str(uuid.uuid4())
     except Exception:
@@ -160,16 +170,28 @@ def chat(message: str, session_id: str = "default", model: str | None = None,
             return client.chat(message, model=model, thinking=thinking, subagents=subagents)
         except Exception:
             pass
-    # 2. HTTP
+    # 2. HTTP  — LangGraph Server protocol
     if is_http_running():
         tid  = get_or_create_thread(session_id)
-        body: dict = {"message": message, "thread_id": tid}
-        if model:     body["model"]            = model
-        if thinking:  body["thinking_enabled"] = True
-        if subagents: body["subagent_enabled"] = True
+        body: dict = {
+            "input": {"messages": [{"role": "human", "content": message}]},
+            "config": {},
+        }
+        if model:     body["config"]["model"]             = model
+        if thinking:  body["config"]["thinking_enabled"]  = True
+        if subagents: body["config"]["subagent_enabled"]  = True
         try:
-            r = _http_post("/chat", body)
-            return (r.get("content") or r.get("message") or str(r)).strip()
+            # POST /api/threads/{thread_id}/runs  → synchronous run
+            r = _http_post(f"/threads/{tid}/runs", body)
+            # Response may be the final run record or a streamed output object
+            content = (r.get("output") or r.get("content")
+                       or r.get("result") or r.get("message") or str(r))
+            if isinstance(content, dict):
+                msgs = content.get("messages", [])
+                if msgs:
+                    last = msgs[-1]
+                    content = last.get("content") or last.get("text", str(last))
+            return str(content).strip()
         except Exception as e:
             return f"DeerFlow HTTP error: {e}"
     return "DeerFlow unavailable — run `python server.py` to start."
@@ -186,29 +208,49 @@ def deep_research(topic: str, session_id: str = "default",
             return client.deep_research(topic, on_progress=on_progress)
         except Exception:
             pass
-    # 2. HTTP streaming
+    # 2. HTTP streaming — LangGraph Server protocol
     if is_http_running():
         tid  = get_or_create_thread(session_id)
-        body = {"message": topic, "thread_id": tid,
-                "thinking_enabled": True, "subagent_enabled": True}
+        body = {
+            "input": {"messages": [{"role": "human", "content": topic}]},
+            "config": {"thinking_enabled": True, "subagent_enabled": True},
+            "stream_mode": "events",
+        }
         chunks: list[str] = []
         try:
-            for line in _http_stream("/chat/stream", body):
+            # POST /api/threads/{thread_id}/runs/stream
+            for line in _http_stream(f"/threads/{tid}/runs/stream", body):
                 if not line.startswith("data: "): continue
                 raw = line[6:]
                 if raw.strip() in ("", "[DONE]"): continue
                 try:
                     ev = json.loads(raw)
-                    t  = ev.get("content") or ev.get("text") or ""
+                    # LangGraph event formats: {data: {output: {messages: [...]}}} or {content: ...}
+                    t = ""
+                    if "data" in ev:
+                        d = ev["data"]
+                        if isinstance(d, dict):
+                            out = d.get("output") or d.get("chunk") or {}
+                            msgs = (out.get("messages") or []) if isinstance(out, dict) else []
+                            if msgs:
+                                t = msgs[-1].get("content") or ""
+                            else:
+                                t = d.get("content") or d.get("text") or ""
+                    t = t or ev.get("content") or ev.get("text") or ""
                     if t:
-                        chunks.append(t)
-                        if on_progress: on_progress(t)
+                        chunks.append(str(t))
+                        if on_progress: on_progress(str(t))
                 except json.JSONDecodeError:
                     pass
         except Exception:
+            # Fallback: synchronous run
             try:
-                r = _http_post("/chat", body)
-                return r.get("content", str(r))
+                r = _http_post(f"/threads/{tid}/runs", {k: v for k, v in body.items() if k != "stream_mode"})
+                content = r.get("output") or r.get("content") or str(r)
+                if isinstance(content, dict):
+                    msgs = content.get("messages", [])
+                    if msgs: content = msgs[-1].get("content", str(msgs[-1]))
+                return str(content)
             except Exception as e2:
                 return f"DeerFlow error: {e2}"
         return "".join(chunks).strip() or "Research complete."
@@ -265,6 +307,7 @@ def push_memory_to_deerflow(octo_memory: dict) -> bool:
 def pull_memory_from_deerflow() -> list[str]:
     if not is_http_running(): return []
     try:
+        # GET /api/memory
         return [m.get("content","") for m in _http_get("/memory").get("memories",[])]
     except Exception:
         return []
@@ -272,6 +315,7 @@ def pull_memory_from_deerflow() -> list[str]:
 def list_models() -> list[str]:
     if not is_http_running(): return []
     try:
+        # GET /api/models
         return [m.get("name") or m.get("id","") for m in _http_get("/models").get("models",[])]
     except Exception:
         return []
