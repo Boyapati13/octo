@@ -132,14 +132,14 @@ def _wait_for_port(host: str, port: int, timeout: float = 20.0) -> bool:
 
 def _print_banner() -> None:
     print("""
-╔══════════════════════════════════════════════════════════════╗
-║           🐙  OCTO-Pro  Super Model  —  Monolith             ║
-╠══════════════════════════════════════════════════════════════╣
-║  Voice Loop   : Gemini Live (this process)                   ║
-║  Model Proxy  : http://127.0.0.1:8082  (free-claude-code)    ║
-║  DeerFlow     : http://127.0.0.1:2026  (LangGraph gateway)   ║
-║  Hermes       : embedded context compressor + MCP            ║
-╚══════════════════════════════════════════════════════════════╝
++--------------------------------------------------------------+
+|           (o)  OCTO-Pro  Super Model  --  Monolith           |
++--------------------------------------------------------------+
+|  Voice Loop   : Gemini Live (this process)                   |
+|  Model Proxy  : http://127.0.0.1:8082  (free-claude-code)    |
+|  DeerFlow     : http://127.0.0.1:2026  (LangGraph gateway)   |
+|  Hermes       : embedded context compressor + MCP            |
++--------------------------------------------------------------+
 """)
 
 
