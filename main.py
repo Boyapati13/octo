@@ -662,7 +662,9 @@ TOOL_DECLARATIONS = [
                         "set_symbol | set_timeframe | add_indicator | remove_indicator | "
                         "pine_get | pine_set | pine_compile | "
                         "create_alert | list_alerts | draw | watchlist | "
-                        "pane_layout | tab_list | replay_start | replay_stop"
+                        "pane_layout | tab_list | replay_start | replay_stop | "
+                        "launch (auto-restart TradingView with CDP) | "
+                        "health_check (verify CDP is working) | discover"
                     )
                 },
                 "symbol":      {"type": "STRING", "description": "Ticker e.g. BTCUSDT, AAPL"},
@@ -1045,6 +1047,10 @@ class OctoLive:
                     "tab_list":          ("tab_list",                 {}),
                     "replay_start":      ("replay_start",             {}),
                     "replay_stop":       ("replay_stop",              {}),
+                    # Health / launch — fix CDP connection
+                    "launch":            ("tv_launch",                {"port": 9222, "kill_existing": True}),
+                    "health_check":      ("tv_health_check",          {}),
+                    "discover":          ("tv_discover",              {}),
                 }
 
                 if action not in _TV_ACTION_MAP:
