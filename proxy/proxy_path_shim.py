@@ -43,20 +43,57 @@ def _alias_package(real_path: Path, alias: str) -> None:
                       any(str(real_path) in str(p) for p in existing_paths))
         if is_correct:
             return
+
+    # Try to load the top-level monolith's real package first to preserve its attributes
+    real_parent_mod = None
+    if alias == "config":
+        try:
+            # We temporarily put parent of proxy on path to load the real parent config package
+            parent_path = str(_PROXY_DIR.parent)
+            sys.path.insert(0, parent_path)
+            # Remove any existing cached module to force reload of the parent package
+            if alias in sys.modules:
+                del sys.modules[alias]
+            real_parent_mod = importlib.import_module(alias)
+        except Exception:
+            pass
+        finally:
+            if str(_PROXY_DIR.parent) in sys.path:
+                sys.path.remove(str(_PROXY_DIR.parent))
+
+    # Pre-register a namespace placeholder module in sys.modules so recursive/circular
+    # imports like `from config.constants` can resolve while the package is importing.
+    mod = types.ModuleType(alias)
+    paths = [str(real_path)]
+    top_dir = _PROXY_DIR.parent / alias
+    if top_dir.exists():
+        paths.insert(0, str(top_dir))
+    mod.__path__ = paths   # type: ignore[assignment]
+    mod.__package__ = alias
+    sys.modules[alias] = mod
+
     try:
         real_mod = importlib.import_module(real_name)
-        sys.modules[alias] = real_mod
+        
+        # Copy everything from real_mod to our registered module except the path search list
+        for k, v in real_mod.__dict__.items():
+            if k != "__path__":
+                setattr(mod, k, v)
+            
+        # Copy over package-level attributes if we preserved a parent module
+        if alias == "config" and real_parent_mod is not None:
+            for k, v in real_parent_mod.__dict__.items():
+                if not k.startswith("__"):
+                    setattr(mod, k, v)
+                
         # Alias all already-imported sub-modules
         for key in list(sys.modules):
             if key == real_name or key.startswith(real_name + "."):
                 new_key = alias + key[len(real_name):]
                 sys.modules.setdefault(new_key, sys.modules[key])
-    except ImportError:
-        # Create a minimal namespace package as placeholder
-        mod = types.ModuleType(alias)
-        mod.__path__ = [str(real_path)]   # type: ignore[assignment]
-        mod.__package__ = alias
-        sys.modules[alias] = mod
+    except Exception:
+        # Keep the placeholder namespace package if importing fails
+        pass
 
 def _alias_self_as(alias: str) -> None:
     """Make the proxy directory importable under 'alias' (e.g. 'api')."""
