@@ -1763,6 +1763,7 @@ class MainWindow(QMainWindow):
     _log_sig        = pyqtSignal(str)
     _state_sig      = pyqtSignal(str)
     _show_setup_sig = pyqtSignal()
+    _mt5_hud_sig    = pyqtSignal(dict)
 
     def __init__(self, face_path: str):
         super().__init__()
@@ -1816,6 +1817,7 @@ class MainWindow(QMainWindow):
         from ui_pages.skills_page    import SkillsPage
         from ui_pages.proxy_page     import ProxyPage
         from ui_pages.project_page   import ProjectPage
+        from ui_pages.mt5_page       import Mt5Page
 
         for name, cls in [("proxy",     ProxyPage),
                            ("memory",    MemoryPage),
@@ -1824,7 +1826,8 @@ class MainWindow(QMainWindow):
                            ("gateway",   GatewayPage),
                            ("tools",     ToolsPage),
                            ("mcp",       McpPage),
-                           ("projects",  ProjectPage)]:
+                           ("projects",  ProjectPage),
+                           ("mt5",       Mt5Page)]:
             p = cls()
             self._pages[name] = p
             self._center_stack.addWidget(p)
@@ -1851,6 +1854,7 @@ class MainWindow(QMainWindow):
         self._log_sig.connect(self._log.append_log)
         self._state_sig.connect(self._apply_state)
         self._show_setup_sig.connect(self._show_setup)
+        self._mt5_hud_sig.connect(self._on_mt5_hud_updated)
 
         self._overlay: SetupOverlay | None = None
         self._settings_overlay: SettingsOverlay | None = None
@@ -1914,9 +1918,53 @@ class MainWindow(QMainWindow):
                 ow, oh,
             )
 
+    def _on_mt5_hud_updated(self, data: dict):
+        online = data.get("online", False)
+        if online:
+            self._mt5_hud_status.setText("● ONLINE")
+            self._mt5_hud_status.setStyleSheet(f"color: {C.GREEN}; background: transparent; font-weight: bold;")
+            balance = data.get("balance", 0.0)
+            pnl = data.get("pnl", 0.0)
+            positions = data.get("positions", 0)
+            self._mt5_hud_bal.setText(f"Balance: ${balance:,.2f}")
+            self._mt5_hud_pnl.setText(f"PnL: ${pnl:,.2f}")
+            pnl_col = C.GREEN if pnl >= 0 else C.RED
+            self._mt5_hud_pnl.setStyleSheet(f"color: {pnl_col}; background: transparent; font-weight: bold;")
+            self._mt5_hud_positions.setText(f"{positions} Positions")
+        else:
+            self._mt5_hud_status.setText("● OFFLINE")
+            self._mt5_hud_status.setStyleSheet(f"color: {C.RED}; background: transparent; font-weight: bold;")
+            self._mt5_hud_bal.setText("Balance: --")
+            self._mt5_hud_pnl.setText("PnL: --")
+            self._mt5_hud_pnl.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+            self._mt5_hud_positions.setText("0 Positions")
+
     def _update_metrics(self):
-        """Metrics panel removed — no-op."""
-        pass
+        """Spawns background thread to poll MT5 and updates the HUD card."""
+        import threading
+        def _run():
+            try:
+                import MetaTrader5 as mt5
+                if not mt5.initialize():
+                    self._mt5_hud_sig.emit({"online": False})
+                    return
+                acc = mt5.account_info()
+                if not acc:
+                    self._mt5_hud_sig.emit({"online": False})
+                    return
+                pos = mt5.positions_get()
+                pos_count = len(pos) if pos else 0
+                self._mt5_hud_sig.emit({
+                    "online": True,
+                    "balance": acc.balance,
+                    "pnl": acc.profit,
+                    "positions": pos_count
+                })
+            except Exception as e:
+                self._mt5_hud_sig.emit({"online": False, "error": str(e)})
+
+        threading.Thread(target=_run, daemon=True, name="octo-mt5-hud").start()
+
 
 
     def _build_header(self) -> QWidget:
@@ -1995,7 +2043,7 @@ class MainWindow(QMainWindow):
             self._center_stack.setCurrentIndex(0)
         else:
             page_order = ["proxy", "memory", "skills", "scheduler",
-                          "gateway", "tools", "mcp", "projects"]
+                          "gateway", "tools", "mcp", "projects", "mt5"]
             if page in page_order:
                 self._center_stack.setCurrentIndex(page_order.index(page) + 1)
 
@@ -2041,6 +2089,7 @@ class MainWindow(QMainWindow):
             ("tools",     "🔧  TOOLS"),
             ("mcp",       "🔌  MCP"),
             ("projects",  "🗂  PROJECTS"),
+            ("mt5",       "📊  METATRADER 5"),
         ]
 
         self._nav_btns: dict[str, QPushButton] = {}
@@ -2115,6 +2164,48 @@ class MainWindow(QMainWindow):
         self._file_hint.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
         self._file_hint.setWordWrap(True)
         lay.addWidget(self._file_hint)
+
+        # MT5 ACCOUNT METRICS CARD
+        lay.addWidget(_sec("METATRADER 5 ACCOUNT"))
+        self._mt5_hud_w = QFrame()
+        self._mt5_hud_w.setFrameShape(QFrame.Shape.StyledPanel)
+        self._mt5_hud_w.setStyleSheet(f"""
+            QFrame {{
+                background: {C.PANEL};
+                border: 1px solid {C.BORDER};
+                border-radius: 4px;
+                padding: 6px;
+            }}
+        """)
+        mt5_hud_lay = QVBoxLayout(self._mt5_hud_w)
+        mt5_hud_lay.setContentsMargins(6, 6, 6, 6)
+        mt5_hud_lay.setSpacing(4)
+
+        status_row = QHBoxLayout()
+        self._mt5_hud_status = QLabel("● OFFLINE")
+        self._mt5_hud_status.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        self._mt5_hud_status.setStyleSheet(f"color: {C.RED}; background: transparent;")
+        status_row.addWidget(self._mt5_hud_status)
+        status_row.addStretch()
+        self._mt5_hud_positions = QLabel("0 Positions")
+        self._mt5_hud_positions.setFont(QFont("Courier New", 7))
+        self._mt5_hud_positions.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+        status_row.addWidget(self._mt5_hud_positions)
+        mt5_hud_lay.addLayout(status_row)
+
+        metrics_row = QHBoxLayout()
+        self._mt5_hud_bal = QLabel("Balance: --")
+        self._mt5_hud_bal.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self._mt5_hud_bal.setStyleSheet(f"color: {C.WHITE}; background: transparent;")
+        metrics_row.addWidget(self._mt5_hud_bal)
+        metrics_row.addStretch()
+        self._mt5_hud_pnl = QLabel("PnL: --")
+        self._mt5_hud_pnl.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self._mt5_hud_pnl.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+        metrics_row.addWidget(self._mt5_hud_pnl)
+        mt5_hud_lay.addLayout(metrics_row)
+
+        lay.addWidget(self._mt5_hud_w)
 
         sep2 = QFrame(); sep2.setFrameShape(QFrame.Shape.HLine)
         sep2.setStyleSheet(f"color: {C.BORDER}; margin: 2px 0;")

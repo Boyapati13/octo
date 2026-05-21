@@ -1305,8 +1305,13 @@ class OctoLive:
                 while True:
                     await asyncio.sleep(0.1)
         except Exception as e:
-            print(f"[OCTO] ❌ Mic: {e}")
-            raise
+            print(f"[OCTO] ⚠️ Mic stream initialization failed: {e}")
+            try:
+                self.ui.write_log("SYS: Audio input driver missing or failed — mic disabled.")
+            except Exception:
+                pass
+            while True:
+                await asyncio.sleep(3600)
 
     async def _receive_audio(self):
         print("[OCTO] 👂 Recv started")
@@ -1365,13 +1370,46 @@ class OctoLive:
     async def _play_audio(self):
         print("[OCTO] 🔊 Play started")
 
-        stream = sd.RawOutputStream(
-            samplerate=RECEIVE_SAMPLE_RATE,
-            channels=CHANNELS,
-            dtype="int16",
-            blocksize=CHUNK_SIZE,
-        )
-        stream.start()
+        try:
+            stream = sd.RawOutputStream(
+                samplerate=RECEIVE_SAMPLE_RATE,
+                channels=CHANNELS,
+                dtype="int16",
+                blocksize=CHUNK_SIZE,
+            )
+            stream.start()
+        except Exception as e:
+            print(f"[OCTO] ⚠️ Play initialization failed: {e}")
+            try:
+                self.ui.write_log("SYS: Audio output driver missing or failed — voice disabled.")
+            except Exception:
+                pass
+            try:
+                while True:
+                    try:
+                        chunk = await asyncio.wait_for(
+                            self.audio_in_queue.get(),
+                            timeout=0.1
+                        )
+                    except asyncio.TimeoutError:
+                        if (
+                            self._turn_done_event
+                            and self._turn_done_event.is_set()
+                            and self.audio_in_queue.empty()
+                        ):
+                            self.set_speaking(False)
+                            self._turn_done_event.clear()
+                        continue
+                    self.set_speaking(True)
+                    # Simulate playing speed
+                    await asyncio.sleep(len(chunk) / (RECEIVE_SAMPLE_RATE * CHANNELS * 2))
+            except Exception:
+                pass
+            finally:
+                self.set_speaking(False)
+                while True:
+                    await asyncio.sleep(3600)
+            return
 
         try:
             while True:
@@ -1396,8 +1434,11 @@ class OctoLive:
             raise
         finally:
             self.set_speaking(False)
-            stream.stop()
-            stream.close()
+            try:
+                stream.stop()
+                stream.close()
+            except Exception:
+                pass
 
     async def run(self):
         while True:

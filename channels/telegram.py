@@ -28,7 +28,18 @@ class TelegramChannel(Channel):
         self._tg_loop: asyncio.AbstractEventLoop | None = None
         self._main_loop: asyncio.AbstractEventLoop | None = None
         self._allowed_users: set[int] = set()
-        for uid in config.get("allowed_users", []):
+        allowed_val = config.get("allowed_users", [])
+        if isinstance(allowed_val, str):
+            import re
+            uids = re.split(r'[,\s]+', allowed_val.strip())
+        elif isinstance(allowed_val, (list, tuple, set)):
+            uids = allowed_val
+        else:
+            uids = [allowed_val] if allowed_val else []
+
+        for uid in uids:
+            if not uid:
+                continue
             try:
                 self._allowed_users.add(int(uid))
             except (ValueError, TypeError):

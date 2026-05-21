@@ -5,7 +5,7 @@
 :: └──────────────────────────────────────────────────────────────┘
 cd /d "%~dp0"
 where uv >nul 2>&1 && (
-    uv run python server.py %*
+    uv run py server.py %*
 ) || (
-    python server.py %*
+    py server.py %*
 )

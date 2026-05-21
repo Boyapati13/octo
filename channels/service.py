@@ -25,6 +25,7 @@ _CHANNEL_REGISTRY: dict[str, str] = {
     "telegram": "channels.telegram:TelegramChannel",
     "wechat": "channels.wechat:WechatChannel",
     "wecom": "channels.wecom:WeComChannel",
+    "whatsapp": "channels.whatsapp_channel:WhatsAppChannel",
 }
 
 # Keys that indicate a user has configured credentials for a channel.
@@ -36,6 +37,7 @@ _CHANNEL_CREDENTIAL_KEYS: dict[str, list[str]] = {
     "telegram": ["bot_token"],
     "wecom": ["bot_id", "bot_secret"],
     "wechat": ["bot_token"],
+    "whatsapp": ["token", "phone_number_id"],
 }
 
 _CHANNELS_LANGGRAPH_URL_ENV = "DEER_FLOW_CHANNELS_LANGGRAPH_URL"
@@ -63,6 +65,24 @@ class ChannelService:
         self.bus = MessageBus()
         self.store = ChannelStore()
         config = dict(channels_config or {})
+
+        # Try to load and merge config/gateway.json configurations dynamically
+        try:
+            from pathlib import Path
+            import json
+            base_dir = Path(__file__).resolve().parent.parent
+            gw_file = base_dir / "config" / "gateway.json"
+            if gw_file.exists():
+                gw_config = json.loads(gw_file.read_text(encoding="utf-8"))
+                for chan_name, chan_cfg in gw_config.items():
+                    if isinstance(chan_cfg, dict):
+                        existing = config.get(chan_name, {})
+                        if isinstance(existing, dict):
+                            config[chan_name] = {**existing, **chan_cfg}
+                        else:
+                            config[chan_name] = chan_cfg
+        except Exception as e:
+            logger.warning("Failed to load and merge gateway.json configuration at startup: %s", e)
         langgraph_url = _resolve_service_url(config, "langgraph_url", _CHANNELS_LANGGRAPH_URL_ENV, DEFAULT_LANGGRAPH_URL)
         gateway_url = _resolve_service_url(config, "gateway_url", _CHANNELS_GATEWAY_URL_ENV, DEFAULT_GATEWAY_URL)
         default_session = config.pop("session", None)
@@ -171,6 +191,14 @@ class ChannelService:
 
         try:
             config = dict(config)
+            # Map key 'token' (from UI/gateway.json) to 'bot_token' (expected by backend channel)
+            if "token" in config:
+                if "bot_token" not in config or not config["bot_token"]:
+                    config["bot_token"] = config["token"]
+            # Clean up the token string to remove all invalid spaces/newlines
+            if "bot_token" in config and isinstance(config["bot_token"], str):
+                config["bot_token"] = config["bot_token"].replace(" ", "").replace("\t", "").replace("\r", "").replace("\n", "")
+
             config["channel_store"] = self.store
             channel = channel_cls(bus=self.bus, config=config)
             self._channels[name] = channel

@@ -22,7 +22,14 @@ class TelegramChannel(BaseChannel):
     def __init__(self, config: dict):
         super().__init__("telegram", config)
         self._token         = config.get("token", "")
-        self._allowed: Set[str] = set(str(u) for u in config.get("allowed_users", []) if u)
+        allowed = config.get("allowed_users", [])
+        if isinstance(allowed, str):
+            allowed_list = [u.strip() for u in allowed.split(",") if u.strip()]
+        elif isinstance(allowed, (list, tuple, set)):
+            allowed_list = [str(u).strip() for u in allowed if u]
+        else:
+            allowed_list = [str(allowed).strip()] if allowed else []
+        self._allowed: Set[str] = set(allowed_list)
         self._offset        = 0
         self._bot           = None
 
