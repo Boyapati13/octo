@@ -6,7 +6,8 @@ from typing import Any
 from PyQt6.QtCore import pyqtSignal, Qt, QTimer
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
-    QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QGridLayout, QFrame
+    QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QGridLayout, QFrame,
+    QStackedWidget
 )
 from PyQt6.QtGui import QFont, QColor
 from .base import (
@@ -18,6 +19,7 @@ class Mt5Page(OctoPage):
     _status_sig = pyqtSignal(dict)
     _suggestion_sig = pyqtSignal(dict)
     _timesfm_sig = pyqtSignal(dict)
+    _news_sig = pyqtSignal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -25,6 +27,7 @@ class Mt5Page(OctoPage):
         self._status_sig.connect(self._on_status_updated)
         self._suggestion_sig.connect(self._on_suggestion_received)
         self._timesfm_sig.connect(self._on_timesfm_received)
+        self._news_sig.connect(self._on_news_received)
 
         # Build UI layout
         self._lay = self.page_layout()
@@ -37,8 +40,14 @@ class Mt5Page(OctoPage):
         self._timer.timeout.connect(self._refresh)
         self._timer.start(4000)
 
+        # Economic calendar & news polling timer (polls every 60 seconds)
+        self._news_timer = QTimer(self)
+        self._news_timer.timeout.connect(self._refresh_news)
+        self._news_timer.start(60000)
+
         # Initial load
         self._refresh()
+        QTimer.singleShot(1000, self._refresh_news)
 
     def _build_header(self):
         hdr = QHBoxLayout()
@@ -336,7 +345,91 @@ class Mt5Page(OctoPage):
         ai_lay.addWidget(self._tf_res_w)
         self._tf_res_w.hide()
 
-        self._dash_lay.addWidget(ai_w)
+        # 3. Tabbed Bottom Section: AI Analytics vs News/Calendar
+        tab_row = QHBoxLayout()
+        tab_row.setSpacing(10)
+        
+        self._ai_tab_btn = self.btn("✨ AI TRADING ANALYTICS", color=PRI, height=28)
+        self._ai_tab_btn.clicked.connect(lambda: self._switch_tab(0))
+        self._ai_tab_btn.setStyleSheet(f"background: {PRI_GHO}; color: {PRI}; border: 1px solid {PRI}; border-radius: 3px; padding: 0 12px;")
+        
+        self._news_tab_btn = self.btn("📰 LIVE NEWS & CALENDAR", color=TEXT_DIM, height=28)
+        self._news_tab_btn.clicked.connect(lambda: self._switch_tab(1))
+        self._news_tab_btn.setStyleSheet(f"background: transparent; color: {TEXT_DIM}; border: 1px solid {BORDER}; border-radius: 3px; padding: 0 12px;")
+        
+        tab_row.addWidget(self._ai_tab_btn)
+        tab_row.addWidget(self._news_tab_btn)
+        tab_row.addStretch()
+        self._dash_lay.addLayout(tab_row)
+        
+        # QStackedWidget to contain our tabs
+        self._stacked_w = QStackedWidget()
+        
+        # Tab 1: AI suggestions + TimesFM (ai_w)
+        self._stacked_w.addWidget(ai_w)
+        
+        # Tab 2: Economic Calendar & News
+        self._news_tab_w = QWidget()
+        self._news_tab_w.setStyleSheet("background: transparent; border: none;")
+        news_tab_lay = QHBoxLayout(self._news_tab_w)
+        news_tab_lay.setContentsMargins(0, 0, 0, 0)
+        news_tab_lay.setSpacing(8)
+        
+        # Left: Live News
+        news_card, news_card_lay = self.card("📰 LIVE FOREX FACTORY NEWS", PRI)
+        news_hdr_lay = QHBoxLayout()
+        self._news_status_lbl = self.lbl("Polling latest news...", 7, color=TEXT_DIM)
+        ref_news_btn = self.btn("↺ Refresh News", color=PRI, height=22)
+        ref_news_btn.clicked.connect(self._refresh_news)
+        news_hdr_lay.addWidget(self._news_status_lbl)
+        news_hdr_lay.addStretch()
+        news_hdr_lay.addWidget(ref_news_btn)
+        news_card_lay.addLayout(news_hdr_lay)
+        
+        self._news_table = QTableWidget(0, 2)
+        self._news_table.setHorizontalHeaderLabels(["Source", "Headline"])
+        self._style_table(self._news_table)
+        self._news_table.setFixedHeight(200)
+        self._news_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        self._news_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self._news_table.setColumnWidth(0, 110)
+        news_card_lay.addWidget(self._news_table)
+        
+        news_tab_lay.addWidget(news_card, stretch=4)
+        
+        # Right: Economic Calendar
+        cal_card, cal_card_lay = self.card("📅 ECONOMIC CALENDAR", ACC2)
+        cal_hdr_lay = QHBoxLayout()
+        self._cal_status_lbl = self.lbl("Today's live high-impact macroeconomic events", 7, color=TEXT_DIM)
+        cal_hdr_lay.addWidget(self._cal_status_lbl)
+        cal_card_lay.addLayout(cal_hdr_lay)
+        
+        self._cal_table = QTableWidget(0, 7)
+        self._cal_table.setHorizontalHeaderLabels([
+            "Time", "Curr", "Impact", "Event Details", "Actual", "Forecast", "Previous"
+        ])
+        self._style_table(self._cal_table)
+        self._cal_table.setFixedHeight(200)
+        self._cal_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        self._cal_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        self._cal_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        self._cal_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self._cal_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
+        self._cal_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)
+        self._cal_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.Interactive)
+        self._cal_table.setColumnWidth(0, 60)
+        self._cal_table.setColumnWidth(1, 40)
+        self._cal_table.setColumnWidth(2, 55)
+        self._cal_table.setColumnWidth(4, 55)
+        self._cal_table.setColumnWidth(5, 55)
+        self._cal_table.setColumnWidth(6, 55)
+        cal_card_lay.addWidget(self._cal_table)
+        
+        news_tab_lay.addWidget(cal_card, stretch=5)
+        
+        self._stacked_w.addWidget(self._news_tab_w)
+        
+        self._dash_lay.addWidget(self._stacked_w)
         
         self._lay.addWidget(self._dash_w)
 
@@ -786,3 +879,171 @@ class Mt5Page(OctoPage):
                 return ast.literal_eval(val_str)
             except Exception:
                 return None
+
+    def _switch_tab(self, index: int):
+        self._stacked_w.setCurrentIndex(index)
+        if index == 0:
+            self._ai_tab_btn.setStyleSheet(f"background: {PRI_GHO}; color: {PRI}; border: 1px solid {PRI}; border-radius: 3px; padding: 0 12px;")
+            self._news_tab_btn.setStyleSheet(f"background: transparent; color: {TEXT_DIM}; border: 1px solid {BORDER}; border-radius: 3px; padding: 0 12px;")
+        else:
+            self._ai_tab_btn.setStyleSheet(f"background: transparent; color: {TEXT_DIM}; border: 1px solid {BORDER}; border-radius: 3px; padding: 0 12px;")
+            self._news_tab_btn.setStyleSheet(f"background: {PRI_GHO}; color: {ACC2}; border: 1px solid {ACC2}; border-radius: 3px; padding: 0 12px;")
+
+    def _refresh_news(self):
+        self._news_status_lbl.setText("Updating feed...")
+        self._news_status_lbl.setStyleSheet(f"color: {ACC2}; background: transparent;")
+        threading.Thread(target=self._load_news_thread, daemon=True).start()
+
+    def _load_news_thread(self):
+        import requests
+        from bs4 import BeautifulSoup
+        
+        news_items = []
+        calendar_events = []
+        news_err = None
+        cal_err = None
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        
+        # 1. Fetch news headlines
+        try:
+            resp = requests.get("https://www.forexfactory.com/news", headers=headers, timeout=8)
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.content, "html.parser")
+                seen_headlines = set()
+                for a in soup.find_all("a"):
+                    href = a.get("href", "")
+                    if "news/" in href:
+                        title = a.text.strip()
+                        title = " ".join(title.split())
+                        if len(title) > 15 and not href.endswith("/hit") and title not in seen_headlines:
+                            seen_headlines.add(title)
+                            news_items.append({
+                                "title": title,
+                                "source": "ForexFactory",
+                                "link": f"https://www.forexfactory.com/{href}"
+                            })
+            else:
+                news_err = f"HTTP {resp.status_code}"
+        except Exception as e:
+            news_err = str(e)
+            
+        # 2. Fetch Economic Calendar
+        try:
+            resp = requests.get("https://www.forexfactory.com/", headers=headers, timeout=8)
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.content, "html.parser")
+                table = soup.find("table", class_="calendar__table")
+                if table:
+                    rows = table.find_all("tr", class_="calendar__row")
+                    for row in rows:
+                        currency_td = row.find("td", class_="calendar__currency")
+                        currency = currency_td.text.strip() if currency_td else ""
+                        
+                        event_td = row.find("td", class_="calendar__event")
+                        event_name = event_td.text.strip() if event_td else ""
+                        
+                        time_td = row.find("td", class_="calendar__time")
+                        event_time = time_td.text.strip() if time_td else ""
+                        
+                        impact_td = row.find("td", class_="calendar__impact")
+                        impact_span = impact_td.find("span") if impact_td else None
+                        impact = "Low"
+                        if impact_span:
+                            impact_class = impact_span.get("class", [])
+                            impact_str = "".join(impact_class)
+                            if "high" in impact_str.lower() or "red" in impact_str.lower():
+                                impact = "High"
+                            elif "medium" in impact_str.lower() or "orange" in impact_str.lower():
+                                impact = "Medium"
+                            elif "low" in impact_str.lower() or "yellow" in impact_str.lower():
+                                impact = "Low"
+                        
+                        actual_td = row.find("td", class_="calendar__actual")
+                        actual = actual_td.text.strip() if actual_td else ""
+                        
+                        forecast_td = row.find("td", class_="calendar__forecast")
+                        forecast = forecast_td.text.strip() if forecast_td else ""
+                        
+                        previous_td = row.find("td", class_="calendar__previous")
+                        previous = previous_td.text.strip() if previous_td else ""
+                        
+                        if event_name:
+                            calendar_events.append({
+                                "time": event_time or "--",
+                                "currency": currency or "--",
+                                "event": event_name,
+                                "impact": impact,
+                                "actual": actual or "--",
+                                "forecast": forecast or "--",
+                                "previous": previous or "--"
+                            })
+                else:
+                    cal_err = "Table not found"
+            else:
+                cal_err = f"HTTP {resp.status_code}"
+        except Exception as e:
+            cal_err = str(e)
+            
+        self._news_sig.emit({
+            "news": news_items,
+            "calendar": calendar_events,
+            "news_error": news_err,
+            "calendar_error": cal_err
+        })
+
+    def _on_news_received(self, data: dict):
+        news = data["news"]
+        calendar = data["calendar"]
+        news_error = data["news_error"]
+        calendar_error = data["calendar_error"]
+        
+        # 1. Update news table
+        if news_error:
+            self._news_status_lbl.setText(f"Failed: {news_error}")
+            self._news_status_lbl.setStyleSheet(f"color: {RED}; background: transparent;")
+            self._news_table.setRowCount(1)
+            self._set_cell(self._news_table, 0, 0, "ERR")
+            self._set_cell(self._news_table, 0, 1, f"Unable to fetch Forex Factory news feed: {news_error}", bold=True).setForeground(QColor(RED))
+        else:
+            self._news_status_lbl.setText(f"● LIVE news synced ({len(news)} items)")
+            self._news_status_lbl.setStyleSheet(f"color: {GREEN}; background: transparent;")
+            self._news_table.setRowCount(len(news))
+            for idx, item in enumerate(news):
+                self._set_cell(self._news_table, idx, 0, item["source"]).setForeground(QColor(TEXT_DIM))
+                self._set_cell(self._news_table, idx, 1, item["title"], bold=True)
+                
+        # 2. Update calendar table
+        if calendar_error:
+            self._cal_status_lbl.setText(f"Failed: {calendar_error}")
+            self._cal_status_lbl.setStyleSheet(f"color: {RED}; background: transparent;")
+            self._cal_table.setRowCount(1)
+            self._set_cell(self._cal_table, 0, 0, "--")
+            self._set_cell(self._cal_table, 0, 1, "--")
+            self._set_cell(self._cal_table, 0, 2, "High")
+            self._set_cell(self._cal_table, 0, 3, f"Unable to fetch economic calendar: {calendar_error}", bold=True).setForeground(QColor(RED))
+            self._set_cell(self._cal_table, 0, 4, "--")
+            self._set_cell(self._cal_table, 0, 5, "--")
+            self._set_cell(self._cal_table, 0, 6, "--")
+        else:
+            self._cal_status_lbl.setText(f"Economic events synced ({len(calendar)} active events)")
+            self._cal_status_lbl.setStyleSheet(f"color: {TEXT_MED}; background: transparent;")
+            self._cal_table.setRowCount(len(calendar))
+            for idx, ev in enumerate(calendar):
+                self._set_cell(self._cal_table, idx, 0, ev["time"])
+                self._set_cell(self._cal_table, idx, 1, ev["currency"], bold=True)
+                
+                impact_item = self._set_cell(self._cal_table, idx, 2, ev["impact"], bold=True)
+                if ev["impact"] == "High":
+                    impact_item.setForeground(QColor(RED))
+                elif ev["impact"] == "Medium":
+                    impact_item.setForeground(QColor(ACC2))
+                else:
+                    impact_item.setForeground(QColor(GREEN))
+                    
+                self._set_cell(self._cal_table, idx, 3, ev["event"], bold=True)
+                self._set_cell(self._cal_table, idx, 4, ev["actual"])
+                self._set_cell(self._cal_table, idx, 5, ev["forecast"]).setForeground(QColor(TEXT_DIM))
+                self._set_cell(self._cal_table, idx, 6, ev["previous"]).setForeground(QColor(TEXT_DIM))
