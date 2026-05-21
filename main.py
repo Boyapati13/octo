@@ -832,7 +832,8 @@ class OctoLive:
 
         # ── MCP context — tells Gemini which servers are live ─────────────────
         try:
-            from agent.mcp_bridge import list_servers, get_all_tools
+            from agent.mcp_bridge import list_servers, get_all_tools, start_all
+            start_all()
             connected = [s for s in list_servers() if s["connected"]]
             if connected:
                 mcp_lines = ["[CONNECTED MCP SERVERS]"]
@@ -1432,10 +1433,13 @@ class OctoLive:
                     # Non-critical: greeting failure should not kill the session.
                     tg.create_task(self._wrap_task(self._greet()))
 
-            except Exception as e:
-                # Unwrap ExceptionGroup from TaskGroup to get the real error.
+            except BaseException as e:
+                if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                    raise
                 inner = e
-                if isinstance(e, ExceptionGroup) and e.exceptions:
+                if hasattr(e, "exceptions") and e.exceptions:
+                    if any(isinstance(x, (KeyboardInterrupt, SystemExit)) for x in e.exceptions):
+                        raise
                     inner = e.exceptions[0]
                 err = str(inner)
                 err_low = err.lower()
@@ -1503,10 +1507,17 @@ def main():
             print("[OCTO] wait_for_api_key done — launching OctoLive")
             OCTO = OctoLive(ui)
             asyncio.run(OCTO.run())
-        except KeyboardInterrupt:
-            print("\n[OCTO] Shutdown requested.")
-        except Exception as e:
-            msg = f"ERR: Voice engine failed — {e}"
+        except BaseException as e:
+            if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                print("\n[OCTO] Shutdown requested.")
+                return
+            inner = e
+            if hasattr(e, "exceptions") and e.exceptions:
+                if any(isinstance(x, (KeyboardInterrupt, SystemExit)) for x in e.exceptions):
+                    print("\n[OCTO] Shutdown requested.")
+                    return
+                inner = e.exceptions[0]
+            msg = f"ERR: Voice engine failed — {inner}"
             print(f"[OCTO] {msg}")
             traceback.print_exc()
             ui.write_log(msg)

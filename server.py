@@ -50,15 +50,17 @@ GATEWAY_PORT = 2026
 # ① Model Proxy  (free-claude-code — octo/proxy/)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _start_proxy(host: str = PROXY_HOST, port: int = PROXY_PORT) -> threading.Thread:
+def _start_proxy(app: Any = None, host: str = PROXY_HOST, port: int = PROXY_PORT) -> threading.Thread:
     def _run():
         try:
             import uvicorn
-            # Wire all proxy internal imports BEFORE importing the app
-            sys.path.insert(0, str(ROOT / "proxy"))
-            import proxy_path_shim  # noqa: F401  — side-effect: sets up aliases
-            from proxy.app import create_asgi_app  # type: ignore
-            app = create_asgi_app()
+            nonlocal app
+            if app is None:
+                # Wire all proxy internal imports BEFORE importing the app
+                sys.path.insert(0, str(ROOT / "proxy"))
+                import proxy_path_shim  # noqa: F401  — side-effect: sets up aliases
+                from proxy.app import create_asgi_app  # type: ignore
+                app = create_asgi_app()
             log.info("🔌 Proxy starting on http://%s:%d", host, port)
             uvicorn.run(app, host=host, port=port, log_level="warning",
                         timeout_graceful_shutdown=5)
@@ -77,12 +79,14 @@ def _start_proxy(host: str = PROXY_HOST, port: int = PROXY_PORT) -> threading.Th
 # ② DeerFlow Gateway  (octo/gateway/ + octo/deerflow/)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _start_gateway(host: str = GATEWAY_HOST, port: int = GATEWAY_PORT) -> threading.Thread:
+def _start_gateway(app: Any = None, host: str = GATEWAY_HOST, port: int = GATEWAY_PORT) -> threading.Thread:
     def _run():
         try:
             import uvicorn
-            from octo_gateway_shim import create_gateway_app  # type: ignore
-            app = create_gateway_app()
+            nonlocal app
+            if app is None:
+                from octo_gateway_shim import create_gateway_app  # type: ignore
+                app = create_gateway_app()
             log.info("🧠 DeerFlow gateway starting on http://%s:%d", host, port)
             uvicorn.run(app, host=host, port=port, log_level="warning",
                         timeout_graceful_shutdown=5)
@@ -170,11 +174,33 @@ def main() -> None:
 
     _print_banner()
 
+    # ── Warm-up imports to prevent multi-threaded import deadlock ──────────────────
+    log.info("Warming up core modules...")
+    proxy_app = None
+    gateway_app = None
+    try:
+        import uvicorn
+        # Pre-import key dependencies sequentially on the main thread
+        import google.genai
+        import langgraph.prebuilt.tool_node
+
+        # 1. Sequentially import and setup proxy app
+        sys.path.insert(0, str(ROOT / "proxy"))
+        import proxy_path_shim
+        from proxy.app import create_asgi_app
+        proxy_app = create_asgi_app()
+
+        # 2. Sequentially import and setup gateway app
+        from octo_gateway_shim import create_gateway_app
+        gateway_app = create_gateway_app()
+    except Exception as e:
+        log.warning("Warm-up import failed/bypassed: %s", e)
+
     # ── Start background services ─────────────────────────────────────────────
     if not args.no_proxy:
-        _start_proxy(port=args.proxy_port)
+        _start_proxy(app=proxy_app, port=args.proxy_port)
     if not args.no_gateway:
-        _start_gateway(port=args.gateway_port)
+        _start_gateway(app=gateway_app, port=args.gateway_port)
 
     time.sleep(1.5)
 
