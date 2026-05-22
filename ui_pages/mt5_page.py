@@ -24,7 +24,8 @@ class Mt5Page(OctoPage):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._watchlist_symbols = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "BTCUSD"]
+        from memory.config_manager import load_watchlist
+        self._watchlist_symbols = load_watchlist()
         self._current_news = []
         self._current_calendar = []
         self._ollama_generating = False
@@ -171,15 +172,29 @@ class Mt5Page(OctoPage):
         self._sym_input = self.field("Symbol (e.g. XAUUSD)", height=24)
         add_btn = self.btn("+ Add", color=ACC2, height=24)
         add_btn.clicked.connect(self._add_to_watchlist)
-        add_sym_row.addWidget(self._sym_input, stretch=3)
+        
+        sync_btn = self.btn("⟳ Sync MT5", color=PRI, height=24)
+        sync_btn.clicked.connect(self._sync_watchlist_with_mt5)
+        
+        add_sym_row.addWidget(self._sym_input, stretch=2)
         add_sym_row.addWidget(add_btn, stretch=1)
+        add_sym_row.addWidget(sync_btn, stretch=1)
         wl_lay.addLayout(add_sym_row)
 
-        self._wl_table = QTableWidget(0, 5)
+        self._wl_table = QTableWidget(0, 6)
         self._wl_table.setHorizontalHeaderLabels([
-            "Symbol", "Bid", "Ask", "Spread", "Suggest"
+            "Symbol", "Bid", "Ask", "Spread", "Suggest", ""
         ])
         self._style_table(self._wl_table)
+        self._wl_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self._wl_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        self._wl_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        self._wl_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        self._wl_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self._wl_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        self._wl_table.setColumnWidth(1, 65)
+        self._wl_table.setColumnWidth(2, 65)
+        self._wl_table.setColumnWidth(3, 65)
         wl_lay.addWidget(self._wl_table)
         
         split.addWidget(wl_w, stretch=4)
@@ -701,6 +716,14 @@ class Mt5Page(OctoPage):
             sug_b.clicked.connect(lambda _, s=sym: self._trigger_ai_for_symbol(s))
             self._wl_table.setCellWidget(idx, 4, sug_b)
 
+            # Delete button
+            del_b = QPushButton("✕")
+            del_b.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+            del_b.setStyleSheet(f"QPushButton {{background: transparent; color: {RED}; border: 1px solid {RED}; border-radius: 2px; padding: 1px 4px;}} QPushButton:hover {{background: #2b0c13;}}")
+            del_b.setCursor(Qt.CursorShape.PointingHandCursor)
+            del_b.clicked.connect(lambda _, s=sym: self._remove_from_watchlist(s))
+            self._wl_table.setCellWidget(idx, 5, del_b)
+
     def _set_cell(self, table: QTableWidget, row: int, col: int, text: str, bold: bool = False) -> QTableWidgetItem:
         item = QTableWidgetItem(text)
         item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
@@ -716,8 +739,38 @@ class Mt5Page(OctoPage):
         sym = self._sym_input.text().strip().upper()
         if sym and sym not in self._watchlist_symbols:
             self._watchlist_symbols.append(sym)
+            from memory.config_manager import save_watchlist
+            save_watchlist(self._watchlist_symbols)
             self._sym_input.clear()
             self._refresh()
+
+    def _remove_from_watchlist(self, symbol: str):
+        if symbol in self._watchlist_symbols:
+            self._watchlist_symbols.remove(symbol)
+            from memory.config_manager import save_watchlist
+            save_watchlist(self._watchlist_symbols)
+            self._refresh()
+
+    def _sync_watchlist_with_mt5(self):
+        self._conn_status.setText("⚙ Syncing Market Watch symbols from MT5...")
+        self._conn_status.setStyleSheet("color: #ffaa00; background: transparent;")
+        threading.Thread(target=self._sync_watchlist_thread, daemon=True).start()
+
+    def _sync_watchlist_thread(self):
+        from agent.mcp_bridge import call_tool
+        from memory.config_manager import save_watchlist
+        try:
+            sym_res = call_tool("metatrader5", "get_available_symbols", {"selected_only": True})
+            if not sym_res.startswith("[MCP]"):
+                active_symbols = self._parse_json(sym_res)
+                if active_symbols and isinstance(active_symbols, list):
+                    active_symbols = [str(s).strip() for s in active_symbols if s]
+                    if active_symbols:
+                        self._watchlist_symbols = sorted(list(set(active_symbols)))
+                        save_watchlist(self._watchlist_symbols)
+        except Exception:
+            pass
+        self._refresh()
 
     def _close_position(self, ticket: int):
         self._conn_status.setText("⚙ Closing position...")

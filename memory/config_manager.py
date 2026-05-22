@@ -115,6 +115,9 @@ _PROXY_KEY_MAP = {
     "zai_api_key":           "ZAI_API_KEY",
     "fireworks_api_key":     "FIREWORKS_API_KEY",
     "nvidia_nim_api_key":    "NVIDIA_NIM_API_KEY",
+    "gemini_api_key":        "GEMINI_API_KEY",
+    "gemini_trading_api_key":"GEMINI_TRADING_API_KEY",
+    "gemini_trading_model":  "GEMINI_TRADING_MODEL",
 }
 
 def save_proxy_keys(keys: dict[str, str]) -> None:
@@ -179,6 +182,27 @@ def save_deerflow_config(cfg: dict) -> None:
 def load_deerflow_config() -> dict:
     stored = _load_json(DF_FILE, {})
     return {**_DF_DEFAULTS, **stored}
+
+
+# ── Watchlist persistence ─────────────────────────────────────────────────────
+
+WATCHLIST_FILE = CONFIG_DIR / "watchlist.json"
+
+def load_watchlist() -> list[str]:
+    default = ["EURUSD+", "XAUUSD+", "XAUEUR+", "CL-OIL", "BTCUSD"]
+    if not WATCHLIST_FILE.exists():
+        return default
+    try:
+        data = json.loads(WATCHLIST_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return [str(x) for x in data]
+        return default
+    except Exception:
+        return default
+
+def save_watchlist(watchlist: list[str]) -> None:
+    _ensure_config_dir()
+    WATCHLIST_FILE.write_text(json.dumps(watchlist, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 # ── Full config dump/load (for Settings UI) ───────────────────────────────────

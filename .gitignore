@@ -5,6 +5,9 @@ __pycache__/
 .env
 config/api_keys.json
 config/gateway.json
+config/watchlist.json
+.deer-flow/
+debug_monolith_warmup.py
 .fcc/
 *.db
 *.sqlite
@@ -12,3 +15,4 @@ logs/
 agent_workspace/
 .venv/
 venv/
+scripts/whatsapp-bridge/

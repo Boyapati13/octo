@@ -18,6 +18,17 @@ Unlike disparate AI toolkits, OCTO-Pro functions as one platform where sensory i
 
 ---
 
+## 🔒 Local-First Data Privacy & Zero-Telemetry Guarantee
+
+OCTO-Pro is built from the ground up as a **100% local-first application**. Your personal information, files, database configurations, trading suggestions, chat histories, and API credentials **NEVER leave your local device** (desktop or laptop), except for direct encrypted HTTPS requests made directly to official generative model providers you configure.
+
+- **Zero Third-Party Telemetry**: We do not collect, intercept, or upload any user analytics, system data, model inputs/outputs, or usage telemetry to third parties.
+- **Strictly Local Storage**: All API credentials and configuration options are saved locally inside `config/api_keys.json`, `config/gateway.json`, and `~/.fcc/.env`. They are never stored in a cloud database or transmitted to any middleman.
+- **Local Sandbox Execution**: The DeerFlow sub-agent sandbox is mapped to local loopback directories or isolated local Docker containers to keep your code execution secure and private.
+- **Independent MT5 Suggested Workflows**: Reconciliations between your technical candles and the Google TimesFM 2.5 predictions run completely on your machine.
+
+---
+
 ## 🧱 System Architecture — Four Layers
 
 ```

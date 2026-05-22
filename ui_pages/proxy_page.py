@@ -16,6 +16,8 @@ from .base import (
 # ─── Providers that have dedicated directories in proxy/providers/ ───────────
 _PROXY_PROVIDERS = [
     # (config_key,             label,                                    masked)
+    ("gemini_api_key",        "Gemini API Key (General OCTO Core)",     True),
+    ("gemini_trading_api_key","Gemini Trading Suggestions Key (MT5)",   True),
     ("anthropic_auth_token",  "Anthropic Auth Token  (direct route)",  True),
     ("openrouter_api_key",    "OpenRouter API Key",                     True),
     ("deepseek_api_key",      "DeepSeek API Key  (Sonnet-tier)",        True),
@@ -91,6 +93,8 @@ class ProxyPage(OctoPage):
 
     def _save_cfg(self) -> None:
         keys = {k: f.text().strip() for k, f in self._fields.items()}
+        if hasattr(self, "_trading_model_cb") and self._trading_model_cb:
+            keys["gemini_trading_model"] = self._trading_model_cb.currentText().strip()
         try:
             from memory.config_manager import save_proxy_keys, sync_proxy_env
             save_proxy_keys(keys)
@@ -226,7 +230,17 @@ class ProxyPage(OctoPage):
                 return
 
             try:
-                if key_name == "anthropic_auth_token":
+                if key_name in ("gemini_api_key", "gemini_trading_api_key"):
+                    r = _req.get(
+                        f"https://generativelanguage.googleapis.com/v1beta/models?key={value}",
+                        timeout=8
+                    )
+                    if r.status_code == 200:
+                        self._validate_sig.emit(key_name, "ok:Gemini API")
+                    else:
+                        self._validate_sig.emit(key_name, f"err:HTTP {r.status_code}")
+
+                elif key_name == "anthropic_auth_token":
                     payload = {
                         "model": "claude-3-haiku-20240307",
                         "max_tokens": 1,
@@ -409,6 +423,48 @@ class ProxyPage(OctoPage):
             row.addWidget(dot)
             lay.addLayout(row)
             self._fields[key_name] = f
+
+            if key_name == "gemini_trading_api_key":
+                model_row = QHBoxLayout(); model_row.setSpacing(6)
+                model_lbl = QLabel("Gemini Trading Suggestions Model")
+                model_lbl.setFont(QFont("Courier New", 7))
+                model_lbl.setFixedWidth(260)
+                model_lbl.setStyleSheet(f"color:{TEXT_MED};background:transparent;border:none;")
+
+                self._trading_model_cb = QComboBox()
+                self._trading_model_cb.setFixedHeight(26)
+                self._trading_model_cb.setEditable(True)
+                self._trading_model_cb.setFont(QFont("Courier New", 8))
+                self._trading_model_cb.setStyleSheet(f"""
+                    QComboBox{{background:#000d14;color:{WHITE};border:1px solid {BORDER};
+                        border-radius:3px;padding:2px 6px;}}
+                    QComboBox::drop-down{{border:none;}}
+                    QComboBox QAbstractItemView{{background:{PANEL};color:{WHITE};border:1px solid {BORDER};}}
+                    QComboBox:focus{{border:1px solid {PRI};}}
+                """)
+
+                models = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro"]
+                for m in models:
+                    self._trading_model_cb.addItem(m)
+
+                saved_model = self._cfg.get("gemini_trading_model", "gemini-3.5-flash")
+                if saved_model:
+                    idx = self._trading_model_cb.findText(saved_model)
+                    if idx >= 0:
+                        self._trading_model_cb.setCurrentIndex(idx)
+                    else:
+                        self._trading_model_cb.setCurrentText(saved_model)
+
+                placeholder_btn = QLabel("")
+                placeholder_btn.setFixedWidth(52)
+                placeholder_dot = QLabel("")
+                placeholder_dot.setFixedWidth(14)
+
+                model_row.addWidget(model_lbl)
+                model_row.addWidget(self._trading_model_cb, stretch=1)
+                model_row.addWidget(placeholder_btn)
+                model_row.addWidget(placeholder_dot)
+                lay.addLayout(model_row)
 
         lay.addWidget(self.sep())
 

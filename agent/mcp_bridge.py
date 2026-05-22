@@ -115,6 +115,15 @@ class _StdioMcpClient:
         self._id_ctr = 0
         import os
         proc_env = os.environ.copy()
+        try:
+            from memory.config_manager import load_proxy_keys, _PROXY_KEY_MAP
+            cfg_keys = load_proxy_keys()
+            for our_key, env_key in _PROXY_KEY_MAP.items():
+                val = cfg_keys.get(our_key, "").strip()
+                if val:
+                    proc_env[env_key] = val
+        except Exception as e:
+            logger.warning("[MCP] Stdio Client config sync error: %s", e)
         if env:
             proc_env.update(env)
         self._proc = subprocess.Popen(
