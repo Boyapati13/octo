@@ -7,7 +7,7 @@ from PyQt6.QtCore import pyqtSignal, Qt, QTimer
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
     QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QGridLayout, QFrame,
-    QStackedWidget
+    QStackedWidget, QTextEdit
 )
 from PyQt6.QtGui import QFont, QColor
 from .base import (
@@ -20,14 +20,19 @@ class Mt5Page(OctoPage):
     _suggestion_sig = pyqtSignal(dict)
     _timesfm_sig = pyqtSignal(dict)
     _news_sig = pyqtSignal(dict)
+    _ollama_sig = pyqtSignal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._watchlist_symbols = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "BTCUSD"]
+        self._current_news = []
+        self._current_calendar = []
+        self._ollama_generating = False
         self._status_sig.connect(self._on_status_updated)
         self._suggestion_sig.connect(self._on_suggestion_received)
         self._timesfm_sig.connect(self._on_timesfm_received)
         self._news_sig.connect(self._on_news_received)
+        self._ollama_sig.connect(self._on_ollama_insight_received)
 
         # Build UI layout
         self._lay = self.page_layout()
@@ -371,9 +376,13 @@ class Mt5Page(OctoPage):
         # Tab 2: Economic Calendar & News
         self._news_tab_w = QWidget()
         self._news_tab_w.setStyleSheet("background: transparent; border: none;")
-        news_tab_lay = QHBoxLayout(self._news_tab_w)
+        news_tab_lay = QVBoxLayout(self._news_tab_w)
         news_tab_lay.setContentsMargins(0, 0, 0, 0)
         news_tab_lay.setSpacing(8)
+        
+        # Row 1: News & Economic Calendar
+        top_row = QHBoxLayout()
+        top_row.setSpacing(8)
         
         # Left: Live News
         news_card, news_card_lay = self.card("📰 LIVE FOREX FACTORY NEWS", PRI)
@@ -389,13 +398,13 @@ class Mt5Page(OctoPage):
         self._news_table = QTableWidget(0, 2)
         self._news_table.setHorizontalHeaderLabels(["Source", "Headline"])
         self._style_table(self._news_table)
-        self._news_table.setFixedHeight(200)
+        self._news_table.setFixedHeight(180)
         self._news_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         self._news_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self._news_table.setColumnWidth(0, 110)
         news_card_lay.addWidget(self._news_table)
         
-        news_tab_lay.addWidget(news_card, stretch=4)
+        top_row.addWidget(news_card, stretch=4)
         
         # Right: Economic Calendar
         cal_card, cal_card_lay = self.card("📅 ECONOMIC CALENDAR", ACC2)
@@ -409,7 +418,7 @@ class Mt5Page(OctoPage):
             "Time", "Curr", "Impact", "Event Details", "Actual", "Forecast", "Previous"
         ])
         self._style_table(self._cal_table)
-        self._cal_table.setFixedHeight(200)
+        self._cal_table.setFixedHeight(180)
         self._cal_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         self._cal_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         self._cal_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
@@ -425,7 +434,39 @@ class Mt5Page(OctoPage):
         self._cal_table.setColumnWidth(6, 55)
         cal_card_lay.addWidget(self._cal_table)
         
-        news_tab_lay.addWidget(cal_card, stretch=5)
+        top_row.addWidget(cal_card, stretch=5)
+        news_tab_lay.addLayout(top_row)
+        
+        # Row 2: Ollama Macroeconomic Insights Card
+        ollama_card, ollama_card_lay = self.card("✨ OLLAMA MACROECONOMIC INSIGHTS", GREEN)
+        ollama_hdr_lay = QHBoxLayout()
+        self._ollama_status_lbl = self.lbl("Ollama: Idle (Gemma model preferred)", 7, color=TEXT_DIM)
+        self._ollama_btn = self.btn("✨ Generate Macro Summary", color=GREEN, height=22)
+        self._ollama_btn.clicked.connect(lambda: self._generate_ollama_summary())
+        ollama_hdr_lay.addWidget(self._ollama_status_lbl)
+        ollama_hdr_lay.addStretch()
+        ollama_hdr_lay.addWidget(self._ollama_btn)
+        ollama_card_lay.addLayout(ollama_hdr_lay)
+        
+        self._ollama_insights_box = QTextEdit()
+        self._ollama_insights_box.setReadOnly(True)
+        self._ollama_insights_box.setFixedHeight(220)
+        self._ollama_insights_box.setFont(QFont("Courier New", 8))
+        self._ollama_insights_box.setStyleSheet(f"""
+            QTextEdit {{
+                background: #000d14;
+                color: {WHITE};
+                border: 1px solid {BORDER};
+                border-radius: 4px;
+                padding: 8px;
+            }}
+        """)
+        self._ollama_insights_box.setPlaceholderText(
+            "Click 'Generate Macro Summary' to have local Ollama analyze current news headlines and macroeconomic calendar events..."
+        )
+        ollama_card_lay.addWidget(self._ollama_insights_box)
+        
+        news_tab_lay.addWidget(ollama_card)
         
         self._stacked_w.addWidget(self._news_tab_w)
         
@@ -1000,6 +1041,10 @@ class Mt5Page(OctoPage):
         news_error = data["news_error"]
         calendar_error = data["calendar_error"]
         
+        # Cache news & calendar data for Ollama
+        self._current_news = news
+        self._current_calendar = calendar
+        
         # 1. Update news table
         if news_error:
             self._news_status_lbl.setText(f"Failed: {news_error}")
@@ -1047,3 +1092,116 @@ class Mt5Page(OctoPage):
                 self._set_cell(self._cal_table, idx, 4, ev["actual"])
                 self._set_cell(self._cal_table, idx, 5, ev["forecast"]).setForeground(QColor(TEXT_DIM))
                 self._set_cell(self._cal_table, idx, 6, ev["previous"]).setForeground(QColor(TEXT_DIM))
+
+    def _generate_ollama_summary(self, auto=False):
+        if self._ollama_generating:
+            return
+        
+        self._ollama_generating = True
+        self._ollama_btn.setEnabled(False)
+        self._ollama_status_lbl.setText("Analyzing macroeconomic data via Ollama...")
+        self._ollama_status_lbl.setStyleSheet(f"color: {ACC2}; background: transparent;")
+        self._ollama_insights_box.setPlaceholderText("Ollama is thinking... Analyzing live events and headlines...")
+        
+        threading.Thread(target=self._load_ollama_summary_thread, daemon=True).start()
+
+    def _load_ollama_summary_thread(self):
+        import requests
+        from memory.config_manager import load_api_keys
+        
+        cfg = load_api_keys()
+        url = cfg.get("ollama_base_url", "http://localhost:11434")
+        cfg_model = cfg.get("ollama_model", "")
+        if "  [" in cfg_model:
+            cfg_model = cfg_model.split("  [")[0]
+        elif " [" in cfg_model:
+            cfg_model = cfg_model.split(" [")[0]
+        cfg_model = cfg_model.strip()
+        
+        # 1. Query available models
+        model = None
+        available_models = []
+        try:
+            r = requests.get(f"{url}/api/tags", timeout=3)
+            if r.ok:
+                available_models = [m["name"] for m in r.json().get("models", [])]
+        except Exception:
+            pass
+            
+        # Determine best model
+        if available_models:
+            # First choice: gemma4:e2b or any gemma variant
+            gemma_models = [m for m in available_models if "gemma" in m.lower()]
+            if gemma_models:
+                model = gemma_models[0]
+            elif cfg_model in available_models:
+                model = cfg_model
+            else:
+                model = available_models[0]
+                
+        if not model:
+            self._ollama_sig.emit({
+                "error": "Ollama is not running, or no models are downloaded. Start Ollama and pull a model (e.g., 'ollama pull gemma3:4b')."
+            })
+            return
+            
+        # 2. Formulate Prompt
+        prompt = (
+            "You are a professional financial analyst and macroeconomic strategist. "
+            "Please analyze the following live market news headlines and upcoming economic calendar events "
+            "and provide a concise, high-impact macroeconomic summary (max 300 words). "
+            "Format the response using bullet points, including a brief 'Risk Assessment' and 'Trading Implications'.\n\n"
+            "=== LIVE MARKET NEWS ===\n"
+        )
+        if self._current_news:
+            for item in self._current_news[:15]:  # limit to top 15 news items
+                prompt += f"- [{item.get('source', 'News')}] {item.get('title', '')}\n"
+        else:
+            prompt += "(No live news available at the moment.)\n"
+            
+        prompt += "\n=== UPCOMING MACROECONOMIC CALENDAR EVENTS ===\n"
+        if self._current_calendar:
+            for ev in self._current_calendar[:15]:  # limit to top 15 events
+                prompt += f"- Time: {ev.get('time', '--')}, Currency: {ev.get('currency', '--')}, Impact: {ev.get('impact', 'Low')}, Event: {ev.get('event', '')}, Actual: {ev.get('actual', '--')}, Forecast: {ev.get('forecast', '--')}, Previous: {ev.get('previous', '--')}\n"
+        else:
+            prompt += "(No calendar events scheduled for today.)\n"
+            
+        prompt += "\nProvide the analytical summary now:"
+        
+        # 3. Call Ollama
+        try:
+            payload = {
+                "model": model,
+                "prompt": prompt,
+                "stream": False
+            }
+            resp = requests.post(f"{url}/api/generate", json=payload, timeout=180)
+            if resp.status_code == 200:
+                res_data = resp.json()
+                summary = res_data.get("response", "")
+                self._ollama_sig.emit({
+                    "model": model,
+                    "summary": summary
+                })
+            else:
+                self._ollama_sig.emit({
+                    "error": f"HTTP {resp.status_code} from Ollama server."
+                })
+        except Exception as e:
+            self._ollama_sig.emit({
+                "error": f"Connection error: {e}"
+            })
+
+    def _on_ollama_insight_received(self, data: dict):
+        self._ollama_generating = False
+        self._ollama_btn.setEnabled(True)
+        
+        if "error" in data:
+            self._ollama_status_lbl.setText("Ollama: Error occurred")
+            self._ollama_status_lbl.setStyleSheet(f"color: {RED}; background: transparent;")
+            self._ollama_insights_box.setText(f"ERROR: {data['error']}")
+        else:
+            model_used = data.get("model", "local model")
+            self._ollama_status_lbl.setText(f"✓ Summary generated using local Ollama ({model_used})")
+            self._ollama_status_lbl.setStyleSheet(f"color: {GREEN}; background: transparent;")
+            self._ollama_insights_box.setText(data.get("summary", ""))

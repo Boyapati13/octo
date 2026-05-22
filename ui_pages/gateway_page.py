@@ -3,13 +3,16 @@ from __future__ import annotations
 import json
 import socket
 import threading
+import urllib.parse
 from datetime import datetime
 from pathlib import Path
 from PyQt6.QtCore import pyqtSignal, Qt, QTimer
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QFrame,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QFrame, QDialog,
 )
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QPixmap
+import requests
+
 from .base import (
     OctoPage, PRI, PRI_DIM, ACC2, GREEN, GREEN_D, RED, TEXT_MED, TEXT_DIM,
     BORDER, BORDER_B, PANEL, PANEL2, WHITE, DARK,
@@ -48,11 +51,9 @@ _PLATFORMS = [
     {
         "id": "whatsapp", "name": "WHATSAPP", "icon": "📱", "color": "#25D366",
         "fields": [
-            ("account_sid",   "Twilio Account SID  (optional)",      True),
-            ("auth_token",    "Twilio Auth Token   (optional)",      True),
-            ("allowed_users", "Phone numbers  (15551234567, no +)",  False),
+            ("allowed_users", "Allowed phones (comma-separated, or * for all)",  False),
         ],
-        "hint": "Powered by whatsapp_channel.py — QR pairing via Twilio sandbox",
+        "hint": "Powered by local Node.js Baileys Bridge — click button below to generate a pairing QR!",
         "impl": "channels.whatsapp_channel",
     },
     {
@@ -78,6 +79,184 @@ _PLATFORMS = [
 
 # Platforms that cannot be auto-tested
 _NO_AUTO_TEST = {"whatsapp", "dingtalk", "feishu"}
+
+
+class WhatsAppQRDialog(QDialog):
+    """Cyberpunk WhatsApp QR pairing visual dialog."""
+    qr_signal = pyqtSignal(bytes)
+    status_signal = pyqtSignal(str, str)  # (text, color_hex)
+    success_signal = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("📱 PAIR WHATSAPP VIA QR")
+        self.setFixedSize(360, 420)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.CustomizeWindowHint)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowCloseButtonHint)
+        
+        # Cyberpunk style matching gateway colors
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #000a10;
+                border: 2px solid #25D366;
+                border-radius: 8px;
+            }
+            QLabel {
+                font-family: 'Courier New';
+                color: #ffffff;
+            }
+            QPushButton {
+                font-family: 'Courier New';
+                font-weight: bold;
+                background: transparent;
+                border: 1px solid #25D366;
+                color: #25D366;
+                border-radius: 4px;
+                padding: 6px 16px;
+            }
+            QPushButton:hover {
+                background: #001a0d;
+            }
+            QPushButton:disabled {
+                border-color: #333333;
+                color: #555555;
+            }
+        """)
+
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(20, 20, 20, 20)
+        self.layout.setSpacing(15)
+
+        # Title
+        self.title_lbl = QLabel("◈ WHATSAPP PAIRING CYCLE ◈")
+        self.title_lbl.setFont(QFont("Courier New", 11, QFont.Weight.Bold))
+        self.title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.title_lbl.setStyleSheet("color: #25D366;")
+        self.layout.addWidget(self.title_lbl)
+
+        # QR Placeholder Frame
+        self.qr_label = QLabel()
+        self.qr_label.setFixedSize(250, 250)
+        self.qr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.qr_label.setStyleSheet("border: 1px dashed #25D366; background: #000d14; border-radius: 4px;")
+        self.qr_label.setText("INITIALIZING BRIDGE...\nPLEASE WAIT.")
+        
+        # Center QR code
+        qr_container = QHBoxLayout()
+        qr_container.addStretch()
+        qr_container.addWidget(self.qr_label)
+        qr_container.addStretch()
+        self.layout.addLayout(qr_container)
+
+        # Status indicator
+        self.status_lbl = QLabel("Starting Node.js bridge...")
+        self.status_lbl.setFont(QFont("Courier New", 8))
+        self.status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_lbl.setStyleSheet("color: #888888;")
+        self.layout.addWidget(self.status_lbl)
+
+        # Close/Cancel button
+        self.close_btn = QPushButton("CANCEL")
+        self.close_btn.clicked.connect(self.reject)
+        self.layout.addWidget(self.close_btn)
+
+        # Signals
+        self.qr_signal.connect(self._on_qr_loaded)
+        self.status_signal.connect(self._on_status)
+        self.success_signal.connect(self._on_success)
+
+        self.session_dir = Path.home() / ".octo" / "whatsapp" / "session"
+        self.qr_path = self.session_dir / "qr.txt"
+        self.creds_path = self.session_dir / "creds.json"
+        
+        # Clean up any stale qr.txt first
+        if self.qr_path.exists():
+            try:
+                self.qr_path.unlink()
+            except Exception:
+                pass
+
+        self.running = True
+        self.paired = False
+        self.last_qr = ""
+        
+        # Start bridge thread
+        threading.Thread(target=self._run_pairing, daemon=True).start()
+        # Start file polling thread
+        threading.Thread(target=self._poll_files, daemon=True).start()
+
+    def _run_pairing(self):
+        try:
+            from channels.whatsapp_channel import WhatsAppChannel
+            ch = WhatsAppChannel(None, {"port": 3005})
+            ch.pair_qr()
+        except Exception as e:
+            self.status_signal.emit(f"Bridge error: {e}", "#ff3355")
+
+    def _poll_files(self):
+        import time
+        start_time = time.time()
+        
+        while self.running:
+            if self.creds_path.exists() and not self.qr_path.exists():
+                self.paired = True
+                self.success_signal.emit()
+                break
+                
+            if time.time() - start_time > 120:
+                self.status_signal.emit("Pairing timed out. Please try again.", "#ff3355")
+                break
+
+            if self.qr_path.exists():
+                try:
+                    qr_data = self.qr_path.read_text(encoding="utf-8").strip()
+                    if qr_data and qr_data != self.last_qr:
+                        self.last_qr = qr_data
+                        self.status_signal.emit("QR Code generated. Scan now!", "#25D366")
+                        
+                        encoded = urllib.parse.quote(qr_data)
+                        url = f"https://api.qrserver.com/v1/create-qr-code/?size=250x250&data={encoded}"
+                        r = requests.get(url, timeout=5)
+                        if r.status_code == 200 and self.running:
+                            self.qr_signal.emit(r.content)
+                except Exception:
+                    pass
+                    
+            time.sleep(1)
+
+    def _on_qr_loaded(self, img_data: bytes):
+        pixmap = QPixmap()
+        pixmap.loadFromData(img_data)
+        self.qr_label.setPixmap(pixmap)
+
+    def _on_status(self, text: str, color: str):
+        self.status_lbl.setText(text)
+        self.status_lbl.setStyleSheet(f"color: {color};")
+
+    def _on_success(self):
+        self.title_lbl.setText("◈ CONNECTION SECURED ◈")
+        self.title_lbl.setStyleSheet("color: #00ff88;")
+        self.status_lbl.setText("✓ SUCCESS: Connected! Device paired.")
+        self.status_lbl.setStyleSheet("color: #00ff88; font-weight: bold;")
+        
+        self.qr_label.setPixmap(QPixmap())  # Clear pixmap
+        self.qr_label.setText("✓ SUCCESS\nCONNECTED")
+        self.qr_label.setStyleSheet("border: 2px solid #00ff88; background: #001a0d; color: #00ff88; font-size: 14pt; font-weight: bold;")
+        self.close_btn.setText("DONE")
+        self.close_btn.setStyleSheet("""
+            QPushButton {
+                background: #001a0d;
+                border: 2px solid #00ff88;
+                color: #00ff88;
+            }
+            QPushButton:hover {
+                background: #00331a;
+            }
+        """)
+
+    def reject(self):
+        self.running = False
+        super().reject()
 
 
 class GatewayPage(OctoPage):
@@ -345,7 +524,7 @@ class GatewayPage(OctoPage):
         if pid in _NO_AUTO_TEST:
             self._test_sig.emit(
                 pid,
-                f"<span style='color:{TEXT_DIM};'>ℹ Cannot auto-test {name} — check your token manually.</span>",
+                f"<span style='color:{TEXT_DIM};'>ℹ Cannot auto-test {name} — check your connection manually.</span>",
             )
             return
 
@@ -448,7 +627,6 @@ class GatewayPage(OctoPage):
         self._on_status("↻ Refreshing platform statuses…")
         for p in _PLATFORMS:
             pid = p["id"]
-            # Only re-test if a token is present
             flds = self._fields.get(pid, {})
             token_field = flds.get("token")
             if token_field and token_field.text().strip():
@@ -490,10 +668,10 @@ class GatewayPage(OctoPage):
         threading.Thread(target=_run, daemon=True).start()
 
     def _pair_whatsapp(self):
-        self._on_status("WhatsApp QR pairing — check the terminal for QR code.")
+        self._on_status("Opening WhatsApp visual QR pairing dialog...")
         try:
-            from channels.whatsapp_channel import WhatsAppChannel  # type: ignore
-            ch = WhatsAppChannel({})
-            threading.Thread(target=ch.pair_qr, daemon=True).start()
+            dialog = WhatsAppQRDialog(self)
+            dialog.exec()
+            self._on_status("Visual QR Pairing Dialog dismissed.")
         except Exception as e:
             self._on_status(f"WhatsApp pairing error: {e}")
