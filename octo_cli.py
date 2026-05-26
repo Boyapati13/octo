@@ -8,6 +8,7 @@ Usage:
 """
 from __future__ import annotations
 
+import logging
 import json
 import sys
 import os
@@ -213,8 +214,8 @@ def _auto_update():
         if before and after and before != after:
             print(f"[OCTO] Code updated ({before[:7]} → {after[:7]}) — restarting...")
             os.execv(sys.executable, [sys.executable] + sys.argv)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning(f"Auto-update failed: {e}")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
