@@ -8,7 +8,9 @@ from types import SimpleNamespace
 from deerflow.runtime.user_context import DEFAULT_USER_ID
 
 INTERNAL_AUTH_HEADER_NAME = "X-DeerFlow-Internal-Token"
-_INTERNAL_AUTH_TOKEN = secrets.token_urlsafe(32)
+import os
+_INTERNAL_AUTH_TOKEN = os.environ.get("DEER_FLOW_INTERNAL_TOKEN") or secrets.token_urlsafe(32)
+print(f"DEBUG_INTERNAL_AUTH: Evaluated _INTERNAL_AUTH_TOKEN to {_INTERNAL_AUTH_TOKEN!r}", flush=True)
 
 
 def create_internal_auth_headers() -> dict[str, str]:

@@ -3,6 +3,10 @@
     "name": {
       "value": "Shiva",
       "updated": "2026-05-18"
+    },
+    "birth_year": {
+      "value": "1934",
+      "updated": "2026-05-23"
     }
   },
   "preferences": {},
@@ -16,7 +20,29 @@
       "updated": "2026-05-21"
     }
   },
-  "relationships": {},
+  "relationships": {
+    "visitors": {
+      "value": "Vani and Rahul are here",
+      "updated": "2026-05-23"
+    }
+  },
   "wishes": {},
-  "notes": {}
+  "notes": {
+    "studying_time": {
+      "value": "Kanna has been studying for an hour",
+      "updated": "2026-05-23"
+    },
+    "first_met_memory": {
+      "value": "from the first moment in that coffee shop, I knew that there was something special between us",
+      "updated": "2026-05-23"
+    },
+    "feelings_expression": {
+      "value": "in this moment, I have no words. Even if I can't tell you now how I feel, I would spend my life showing you",
+      "updated": "2026-05-23"
+    },
+    "hybrid_trading_portfolio_verdict": {
+      "value": "Pair EURUSD with the H1 SMC Trend Pro (H4 EMA Trend filter + H1 SMC Order Block + H1 RSI Pullback setup) with FastEMA=10, SlowEMA=100, SLMult=2.0, TPMult=3.0 (+6.35% Net Profit, 1.48 PF, 53.8% Win Rate). Pair GBPUSD+ with the H1 Robust RSI & EMA Plateau (Pass 244) strategy for macro trend stability (+4.50% Net Profit, 1.08 PF, 108 trades). Pair NAS100 and XAUUSD+ with the M15 Whale Suite v6.70 Pure Volume wick absorption retest engine (+19.27% Net Profit, 20.27 PF on NAS100) to exploit index/metal volatility sweeps dynamically with risk-free breakeven shielding.",
+      "updated": "2026-05-25"
+    }
+  }
 }

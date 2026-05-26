@@ -56,6 +56,9 @@ OCTO-Pro is built from the ground up as a **100% local-first application**. Your
 |---------|-------------|
 | 🎙️ **Real-time Voice** | Ultra-low latency Gemini Live conversation with seamless voice ↔ keyboard switching |
 | 👁️ **Visual Awareness** | Real-time screen processing and webcam vision — the agent sees your workspace |
+| 📊 **Hardware & System Metrics** | Real-time HUD tracking for CPU, GPU, Memory, Network, and thermals (`_SysMetrics`) |
+| 🌌 **3D WebGL HUD UI** | Adaptive PyQt6 interface featuring an animated, reactive 3D WebGL Avatar |
+| 📈 **Quant Trading Bridge** | Native MT5 (`mt5_mcp`) and TradingView (`tradingview_mcp`) control and telemetry reading |
 | 🖥️ **OS Control** | App orchestration, file I/O, terminal execution, volume, brightness, WiFi |
 | 🤖 **Sub-Agent Orchestration** | DeerFlow decomposes complex goals into parallel workstreams |
 | 🧠 **Persistent Memory** | FTS5 session search, Honcho user modeling, and memory nudges |
@@ -167,8 +170,8 @@ Then in the OCTO Desktop **Proxy** page → **OLLAMA — LOCAL MODEL BACKUP**:
 
 ```
 octo/
-├── main.py                      # Entry point — Gemini Live voice loop + tool dispatch
-├── ui.py                        # PyQt6 adaptive UI (resizable, transparent)
+├── main.py                      # Entry point — Gemini Live voice loop + tool dispatch (mt5_mcp, tradingview_mcp)
+├── ui.py                        # PyQt6 adaptive UI (3D WebGL HUD, Hardware Metrics _SysMetrics, FileDropZone)
 ├── ui_pages/                    # Settings, MCP, Gateway, Skills, Memory, Scheduler
 │
 ├── agent/                       # 🧠 Orchestration layer
@@ -199,6 +202,7 @@ octo/
 │   ├── dev_agent.py             # Terminal + git + docker execution
 │   ├── deep_research.py         # Long-horizon web crawling + synthesis
 │   ├── deerflow_task.py         # DeerFlow sub-agent dispatch
+│   ├── mcp_connect.py           # Universal MCP client handler
 │   └── ...                      # 15+ additional action modules
 │
 ├── memory/                      # 💾 Hermes learning loop
@@ -322,6 +326,17 @@ Edit `config/mcp_servers.json` or use **Settings → MCP**:
   ]
 }
 ```
+
+---
+
+## 📈 Algorithmic Trading & AI Quant Architecture
+
+OCTO is natively integrated with institutional-grade trading setups, making it a fully autonomous AI Trading Agent:
+
+- **MetaTrader 5 Bridge**: `mt5_mcp` streams tick-level OHLCV data, JSON telemetry (like SMC liquidity and Volume Profile data from Whale Suite indicators), and handles live execution of BUY/SELL orders.
+- **TradingView Bridge**: `tradingview_mcp` reads chart states, active PineScript indicators, and sets alerts directly via Chrome DevTools Protocol.
+- **Backtesting & Optimization**: Deep integration with Python-based quantitative tools (like `investing-algorithm-framework`) allows vector-backtesting of the AI's decision logic against thousands of parameters.
+- **Hybrid Execution**: MT5 handles the lightning-fast tick-level execution and wick-rejection math, while the OCTO Python Brain processes the JSON telemetry to determine macro trend, sentiment, and trade permissions.
 
 ---
 

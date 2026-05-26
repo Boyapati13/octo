@@ -28,6 +28,7 @@ from pathlib import Path
 
 # ── Path bootstrap ────────────────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent
+os.environ.setdefault("DEER_FLOW_PROJECT_ROOT", str(ROOT))
 for _p in [ROOT, ROOT / "deerflow", ROOT / "gateway"]:
     s = str(_p)
     if s not in sys.path:
@@ -62,7 +63,7 @@ def _start_proxy(app: Any = None, host: str = PROXY_HOST, port: int = PROXY_PORT
                 from proxy.app import create_asgi_app  # type: ignore
                 app = create_asgi_app()
             log.info("🔌 Proxy starting on http://%s:%d", host, port)
-            uvicorn.run(app, host=host, port=port, log_level="warning",
+            uvicorn.run(app, host=host, port=port, log_level="info",
                         timeout_graceful_shutdown=5)
         except ImportError as e:
             log.warning("Proxy unavailable (missing deps): %s", e)
@@ -88,7 +89,7 @@ def _start_gateway(app: Any = None, host: str = GATEWAY_HOST, port: int = GATEWA
                 from octo_gateway_shim import create_gateway_app  # type: ignore
                 app = create_gateway_app()
             log.info("🧠 DeerFlow gateway starting on http://%s:%d", host, port)
-            uvicorn.run(app, host=host, port=port, log_level="warning",
+            uvicorn.run(app, host=host, port=port, log_level="info",
                         timeout_graceful_shutdown=5)
         except ImportError as e:
             log.warning("DeerFlow gateway unavailable (missing deps): %s", e)
@@ -172,6 +173,27 @@ def main() -> None:
     parser.add_argument("--gateway-port", type=int, default=GATEWAY_PORT)
     args = parser.parse_args()
 
+    # Set environment variables for the gateway port and channels config
+    # before any warm-up imports/evaluations to ensure singletons cache the correct values.
+    os.environ["GATEWAY_PORT"] = str(args.gateway_port)
+    os.environ["DEER_FLOW_CHANNELS_LANGGRAPH_URL"] = f"http://127.0.0.1:{args.gateway_port}/api"
+    os.environ["DEER_FLOW_CHANNELS_GATEWAY_URL"] = f"http://127.0.0.1:{args.gateway_port}"
+
+    # Load API keys from config/api_keys.json into the environment space
+    # so uvicorn, LangGraph, and model proxy have direct access.
+    try:
+        import json
+        key_file = ROOT / "config" / "api_keys.json"
+        if key_file.exists():
+            keys = json.loads(key_file.read_text(encoding="utf-8"))
+            for k, v in keys.items():
+                if v and isinstance(v, str):
+                    env_name = k.upper()
+                    os.environ[env_name] = v
+    except Exception as e:
+        log.warning("Failed to load api_keys.json: %s", e)
+
+    log.info("Loaded DEER_FLOW_INTERNAL_TOKEN: %s", os.environ.get("DEER_FLOW_INTERNAL_TOKEN"))
     _print_banner()
 
     # ── Warm-up imports to prevent multi-threaded import deadlock ──────────────────

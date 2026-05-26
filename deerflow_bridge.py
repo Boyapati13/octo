@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import threading
 import time
@@ -23,6 +24,7 @@ from typing import Callable, Generator
 log = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent
+os.environ.setdefault("DEER_FLOW_PROJECT_ROOT", str(ROOT))
 for _p in [ROOT, ROOT / "deerflow"]:
     s = str(_p)
     if s not in sys.path:

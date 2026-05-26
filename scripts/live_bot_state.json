@@ -1,0 +1,11 @@
+{
+    "193436544": {
+        "symbol": "XAUUSD+",
+        "entry_price": 4500.94,
+        "initial_sl": 0.0,
+        "initial_tp": 0.0,
+        "initial_lot": 0.01,
+        "partial_taken": false,
+        "sl_to_be": false
+    }
+}

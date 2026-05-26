@@ -149,11 +149,56 @@ class ClaudeProxyService:
                 return optimized
             logger.debug("No optimization matched, routing to provider")
 
-            provider = self._provider_getter(routed.resolved.provider_id)
-            provider.preflight_stream(
-                routed.request,
-                thinking_enabled=routed.resolved.thinking_enabled,
-            )
+            primary_id = routed.resolved.provider_id
+            request_id = f"req_{uuid.uuid4().hex[:12]}"
+            
+            try:
+                provider = self._provider_getter(primary_id)
+                provider.preflight_stream(
+                    routed.request,
+                    thinking_enabled=routed.resolved.thinking_enabled,
+                )
+                
+                input_tokens = self._token_counter(
+                    routed.request.messages,
+                    routed.request.system,
+                    routed.request.tools,
+                )
+                
+                stream_generator = provider.stream_response(
+                    routed.request,
+                    input_tokens=input_tokens,
+                    request_id=request_id,
+                    thinking_enabled=routed.resolved.thinking_enabled,
+                )
+            except Exception as primary_exc:
+                if primary_id != "ollama":
+                    logger.warning("[Proxy] Primary provider '{}' failed: {}. Attempting local Ollama fallback...", primary_id, primary_exc)
+                    fallback_routed = self._try_ollama_fallback(request_data)
+                    if fallback_routed is not None:
+                        routed = fallback_routed
+                        provider = self._provider_getter("ollama")
+                        logger.info("[Proxy] [FAILOVER] Successfully rerouted request to local Ollama model '{}'.", routed.resolved.provider_model)
+                        
+                        provider.preflight_stream(
+                            routed.request,
+                            thinking_enabled=routed.resolved.thinking_enabled,
+                        )
+                        input_tokens = self._token_counter(
+                            routed.request.messages,
+                            routed.request.system,
+                            routed.request.tools,
+                        )
+                        stream_generator = provider.stream_response(
+                            routed.request,
+                            input_tokens=input_tokens,
+                            request_id=request_id,
+                            thinking_enabled=routed.resolved.thinking_enabled,
+                        )
+                    else:
+                        raise primary_exc
+                else:
+                    raise primary_exc
 
             trace_event(
                 stage="routing",
@@ -166,7 +211,6 @@ class ClaudeProxyService:
                 thinking_enabled=routed.resolved.thinking_enabled,
             )
 
-            request_id = f"req_{uuid.uuid4().hex[:12]}"
             with logger.contextualize(request_id=request_id):
                 trace_event(
                     stage="ingress",
@@ -181,19 +225,8 @@ class ClaudeProxyService:
                         "FULL_PAYLOAD [{}]: {}", request_id, routed.request.model_dump()
                     )
 
-                input_tokens = self._token_counter(
-                    routed.request.messages,
-                    routed.request.system,
-                    routed.request.tools,
-                )
-
                 streamed = traced_async_stream(
-                    provider.stream_response(
-                        routed.request,
-                        input_tokens=input_tokens,
-                        request_id=request_id,
-                        thinking_enabled=routed.resolved.thinking_enabled,
-                    ),
+                    stream_generator,
                     stage="egress",
                     source="api",
                     complete_event="api.response.stream_completed",
@@ -260,3 +293,37 @@ class ClaudeProxyService:
                     status_code=_http_status_for_unexpected_service_exception(e),
                     detail=get_user_facing_error_message(e),
                 ) from e
+
+    def _try_ollama_fallback(self, request_data: MessagesRequest) -> RoutedMessagesRequest | None:
+        """Attempts to discover a running local Ollama server and returns a routed request for the first available model."""
+        import urllib.request
+        import urllib.error
+        import json
+        
+        base_url = (self._settings.ollama_base_url or "http://127.0.0.1:11434").rstrip("/")
+        url = f"{base_url}/api/tags"
+        
+        try:
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=1.0) as conn:
+                if conn.status == 200:
+                    data = json.loads(conn.read().decode())
+                    models = [m["name"] for m in data.get("models", [])]
+                    if models:
+                        fallback_model = models[0]
+                        # Construct RoutedMessagesRequest for Ollama
+                        from .model_router import ResolvedModel, RoutedMessagesRequest
+                        resolved_fallback = ResolvedModel(
+                            original_model=request_data.model,
+                            provider_id="ollama",
+                            provider_model=fallback_model,
+                            provider_model_ref=f"ollama/{fallback_model}",
+                            thinking_enabled=False
+                        )
+                        routed_fallback = request_data.model_copy(deep=True)
+                        routed_fallback.model = fallback_model
+                        return RoutedMessagesRequest(request=routed_fallback, resolved=resolved_fallback)
+        except Exception as e:
+            logger.warning("[Proxy] Ollama fallback check failed: {}", e)
+        return None
+

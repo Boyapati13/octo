@@ -13,6 +13,12 @@ from pathlib import Path
 
 import psutil
 
+# Pre-import QtWebEngineWidgets to satisfy Chromium OpenGL context requirements before QCoreApplication initialization
+try:
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
+except ImportError:
+    pass
+
 from PyQt6.QtCore import (
     QEasingCurve, QMimeData, QObject, QPointF, QRectF, QSize, Qt,
     QTimer, QUrl, pyqtSignal,
@@ -287,11 +293,47 @@ class HudCanvas(QWidget):
         self._blink_tick = 0
         self._particles: list[list[float]] = []
         self._face_px: QPixmap | None = None
-        self._load_face(face_path)
+
+        # 3D Avatar GLB integration using local WebGL page
+        try:
+            from PyQt6.QtWebEngineWidgets import QWebEngineView
+            from PyQt6.QtWebEngineCore import QWebEngineSettings
+            self.web_view = QWebEngineView(self)
+            self.web_view.setStyleSheet("background: transparent;")
+            self.web_view.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            
+            settings = self.web_view.settings()
+            settings.setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, True)
+            settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
+            settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
+            
+            # Load local WebGL HTML page
+            local_html = os.path.abspath(os.path.join(os.path.dirname(__file__), "web_avatar", "index.html"))
+            self.web_view.setUrl(QUrl.fromLocalFile(local_html))
+            print("[HUD] 3D WebGL Avatar Engine connected.")
+        except Exception as e:
+            print(f"[HUD] 3D WebGL rendering bypassed: {e}")
+            self.web_view = None
+            self._load_face(face_path)
 
         self._tmr = QTimer(self)
         self._tmr.timeout.connect(self._step)
         self._tmr.start(16)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if getattr(self, "web_view", None):
+            # Center the 3D model exactly inside the central holographic ring
+            W, H = self.width(), self.height()
+            fw = min(W, H)
+            fsz = int(fw * 0.60 * self._scale)
+            cx, cy = W / 2, H / 2
+            self.web_view.setGeometry(
+                int(cx - fsz / 2),
+                int(cy - fsz / 2),
+                fsz,
+                fsz
+            )
 
     def _load_face(self, path: str):
         try:
@@ -452,7 +494,7 @@ class HudCanvas(QWidget):
             p.drawLine(QPointF(bx, by), QPointF(bx, by + dy * bl))
 
         # face
-        if self._face_px:
+        if self._face_px and not getattr(self, "web_view", None):
             fsz    = int(fw * 0.62 * self._scale)
             scaled = self._face_px.scaled(
                 fsz, fsz,
@@ -460,7 +502,7 @@ class HudCanvas(QWidget):
                 Qt.TransformationMode.SmoothTransformation,
             )
             p.drawPixmap(int(cx - fsz / 2), int(cy - fsz / 2), scaled)
-        else:
+        elif not getattr(self, "web_view", None):
             orb_r = int(fw * 0.27 * self._scale)
             oc    = (200, 0, 50) if self.muted else (0, 60, 110)
             for i in range(8, 0, -1):
@@ -1764,6 +1806,7 @@ class MainWindow(QMainWindow):
     _state_sig      = pyqtSignal(str)
     _show_setup_sig = pyqtSignal()
     _mt5_hud_sig    = pyqtSignal(dict)
+    _amplitude_sig  = pyqtSignal(float)
 
     def __init__(self, face_path: str):
         super().__init__()
@@ -1855,6 +1898,7 @@ class MainWindow(QMainWindow):
         self._state_sig.connect(self._apply_state)
         self._show_setup_sig.connect(self._show_setup)
         self._mt5_hud_sig.connect(self._on_mt5_hud_updated)
+        self._amplitude_sig.connect(self._handle_amplitude)
 
         self._overlay: SetupOverlay | None = None
         self._settings_overlay: SettingsOverlay | None = None
@@ -1866,6 +1910,13 @@ class MainWindow(QMainWindow):
         sc_mute.activated.connect(self._toggle_mute)
         sc_full = QShortcut(QKeySequence("F11"), self)
         sc_full.activated.connect(self._toggle_fullscreen)
+
+    def _handle_amplitude(self, amp: float):
+        try:
+            if getattr(self.hud, "web_view", None):
+                self.hud.web_view.page().runJavaScript(f"window.setMouthOpen({amp});")
+        except Exception:
+            pass
 
     def _toggle_fullscreen(self):
         if self.isFullScreen():
@@ -2451,3 +2502,6 @@ class OctoUI:
     def stop_speaking(self):
         if not self.muted:
             self.set_state("LISTENING")
+
+    def set_amplitude(self, amplitude: float):
+        self._win._amplitude_sig.emit(amplitude)

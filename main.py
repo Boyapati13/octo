@@ -1425,15 +1425,38 @@ class OctoLive:
                         and self.audio_in_queue.empty()
                     ):
                         self.set_speaking(False)
+                        try:
+                            self.ui.set_amplitude(0.0)
+                        except Exception:
+                            pass
                         self._turn_done_event.clear()
                     continue
+                
                 self.set_speaking(True)
+                
+                # Real-time voice amplitude calculations for dynamic 3D lip-syncing
+                try:
+                    import struct
+                    count = len(chunk) // 2
+                    if count > 0:
+                        shorts = struct.unpack(f"<{count}h", chunk)
+                        mean_abs = sum(abs(s) for s in shorts) / count
+                        # Scale speaking peaks to normal [0.0, 1.0] range
+                        amplitude = min(1.0, mean_abs / 4000.0)
+                        self.ui.set_amplitude(amplitude)
+                except Exception:
+                    pass
+
                 await asyncio.to_thread(stream.write, chunk)
         except Exception as e:
             print(f"[OCTO] ❌ Play: {e}")
             raise
         finally:
             self.set_speaking(False)
+            try:
+                self.ui.set_amplitude(0.0)
+            except Exception:
+                pass
             try:
                 stream.stop()
                 stream.close()

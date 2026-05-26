@@ -7,10 +7,12 @@ so this shim is now just a clean factory wrapper.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+os.environ.setdefault("DEER_FLOW_PROJECT_ROOT", str(ROOT))
 for _p in [ROOT, ROOT / "deerflow", ROOT / "gateway"]:
     s = str(_p)
     if s not in sys.path:

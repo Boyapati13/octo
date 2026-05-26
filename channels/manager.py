@@ -23,8 +23,8 @@ from deerflow.runtime.user_context import get_effective_user_id
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_LANGGRAPH_URL = "http://localhost:8001/api"
-DEFAULT_GATEWAY_URL = "http://localhost:8001"
+DEFAULT_LANGGRAPH_URL = "http://localhost:2026/api"
+DEFAULT_GATEWAY_URL = "http://localhost:2026"
 DEFAULT_ASSISTANT_ID = "lead_agent"
 CUSTOM_AGENT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
 
@@ -804,6 +804,7 @@ class ChannelManager:
             else:
                 raise
 
+        print(f"DEBUG_RAW_RESULT: {result}", flush=True)
         response_text = _extract_response_text(result)
         artifacts = _extract_artifacts(result)
 
