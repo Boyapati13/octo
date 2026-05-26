@@ -749,11 +749,26 @@ class _ProjectWorkspace(QWidget):
         self._model_combo = QComboBox()
         self._model_combo.setFixedHeight(26)
         self._model_combo.setFont(QFont("Courier New", 8))
-        self._model_combo.addItems([
-            "gemini-2.5-flash", "gemini-2.5-pro",
-            "gemini-2.0-flash", "ollama/gemma4",
-            "ollama/llama3", "deerflow/auto",
-        ])
+        
+        # Dynamically load models
+        models = ["deerflow/auto"]
+        try:
+            from memory.config_manager import load_proxy_keys, _load_json, CONFIG_FILE
+            proxy_keys = load_proxy_keys()
+            if proxy_keys.get("anthropic_auth_token"): models.append("claude-3-5-sonnet")
+            if proxy_keys.get("gemini_api_key"): models.extend(["gemini-2.5-flash", "gemini-2.5-pro"])
+            if proxy_keys.get("openrouter_api_key"): models.append("openrouter/auto")
+            if proxy_keys.get("deepseek_api_key"): models.append("deepseek-chat")
+            
+            # Local ollama
+            cfg = _load_json(CONFIG_FILE, {})
+            ollama_m = cfg.get("ollama_model", "")
+            if ollama_m: models.append(f"ollama/{ollama_m}")
+            else: models.extend(["ollama/llama3", "ollama/gemma3"])
+        except Exception:
+            models.extend(["gemini-2.5-flash", "ollama/llama3"])
+            
+        self._model_combo.addItems(models)
         self._model_combo.setStyleSheet(
             f"QComboBox{{background:#000d12;color:{C.TEXT};"
             f"border:1px solid {C.BORDER};border-radius:3px;padding:0 8px;}}"

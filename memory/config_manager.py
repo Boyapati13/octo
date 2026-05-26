@@ -125,9 +125,14 @@ def save_proxy_keys(keys: dict[str, str]) -> None:
     data = _load_json(CONFIG_FILE, {})
     fcc  = _read_fcc_env()
     for our_key, env_key in _PROXY_KEY_MAP.items():
-        if our_key in keys and keys[our_key]:
-            data[our_key] = keys[our_key].strip()
-            fcc[env_key]  = keys[our_key].strip()
+        if our_key in keys:
+            val = keys[our_key].strip()
+            if val:
+                data[our_key] = val
+                fcc[env_key]  = val
+            else:
+                data.pop(our_key, None)
+                fcc.pop(env_key, None)
     _save_json(CONFIG_FILE, data)
     _write_fcc_env(fcc)
 

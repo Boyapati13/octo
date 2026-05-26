@@ -135,7 +135,7 @@ def is_http_running() -> bool:
             return False
 
 def is_running() -> bool:
-    return is_embedded() or is_http_running()
+    return is_embedded()
 
 def wait_until_ready(timeout: float = 30.0) -> bool:
     deadline = time.monotonic() + timeout
@@ -168,35 +168,8 @@ def chat(message: str, session_id: str = "default", model: str | None = None,
     # 1. Embedded
     client = _get_embedded_client()
     if client:
-        try:
-            return client.chat(message, model=model, thinking=thinking, subagents=subagents)
-        except Exception:
-            pass
-    # 2. HTTP  — LangGraph Server protocol
-    if is_http_running():
-        tid  = get_or_create_thread(session_id)
-        body: dict = {
-            "input": {"messages": [{"role": "human", "content": message}]},
-            "config": {},
-        }
-        if model:     body["config"]["model"]             = model
-        if thinking:  body["config"]["thinking_enabled"]  = True
-        if subagents: body["config"]["subagent_enabled"]  = True
-        try:
-            # POST /api/threads/{thread_id}/runs  → synchronous run
-            r = _http_post(f"/threads/{tid}/runs", body)
-            # Response may be the final run record or a streamed output object
-            content = (r.get("output") or r.get("content")
-                       or r.get("result") or r.get("message") or str(r))
-            if isinstance(content, dict):
-                msgs = content.get("messages", [])
-                if msgs:
-                    last = msgs[-1]
-                    content = last.get("content") or last.get("text", str(last))
-            return str(content).strip()
-        except Exception as e:
-            return f"DeerFlow HTTP error: {e}"
-    return "DeerFlow unavailable — run `python server.py` to start."
+        return client.chat(message, model=model, thinking=thinking, subagents=subagents)
+    return "DeerFlow unavailable — unable to load embedded DeerFlowClient."
 
 
 # ── Deep research ─────────────────────────────────────────────────────────────
@@ -207,56 +180,22 @@ def deep_research(topic: str, session_id: str = "default",
     client = _get_embedded_client()
     if client:
         try:
-            return client.deep_research(topic, on_progress=on_progress)
-        except Exception:
-            pass
-    # 2. HTTP streaming — LangGraph Server protocol
-    if is_http_running():
-        tid  = get_or_create_thread(session_id)
-        body = {
-            "input": {"messages": [{"role": "human", "content": topic}]},
-            "config": {"thinking_enabled": True, "subagent_enabled": True},
-            "stream_mode": "events",
-        }
-        chunks: list[str] = []
-        try:
-            # POST /api/threads/{thread_id}/runs/stream
-            for line in _http_stream(f"/threads/{tid}/runs/stream", body):
-                if not line.startswith("data: "): continue
-                raw = line[6:]
-                if raw.strip() in ("", "[DONE]"): continue
-                try:
-                    ev = json.loads(raw)
-                    # LangGraph event formats: {data: {output: {messages: [...]}}} or {content: ...}
-                    t = ""
-                    if "data" in ev:
-                        d = ev["data"]
-                        if isinstance(d, dict):
-                            out = d.get("output") or d.get("chunk") or {}
-                            msgs = (out.get("messages") or []) if isinstance(out, dict) else []
-                            if msgs:
-                                t = msgs[-1].get("content") or ""
-                            else:
-                                t = d.get("content") or d.get("text") or ""
-                    t = t or ev.get("content") or ev.get("text") or ""
-                    if t:
-                        chunks.append(str(t))
-                        if on_progress: on_progress(str(t))
-                except json.JSONDecodeError:
-                    pass
-        except Exception:
-            # Fallback: synchronous run
-            try:
-                r = _http_post(f"/threads/{tid}/runs", {k: v for k, v in body.items() if k != "stream_mode"})
-                content = r.get("output") or r.get("content") or str(r)
-                if isinstance(content, dict):
-                    msgs = content.get("messages", [])
-                    if msgs: content = msgs[-1].get("content", str(msgs[-1]))
-                return str(content)
-            except Exception as e2:
-                return f"DeerFlow error: {e2}"
-        return "".join(chunks).strip() or "Research complete."
-    return "DeerFlow unavailable — run `python server.py` to start."
+            thread_id = get_or_create_thread(session_id)
+            chunks: dict[str, list[str]] = {}
+            last_id: str = ""
+            for event in client.stream(topic, thread_id=thread_id, subagent_enabled=True):
+                if event.type == "messages-tuple" and event.data.get("type") == "ai":
+                    msg_id = event.data.get("id") or ""
+                    delta = event.data.get("content", "")
+                    if delta:
+                        chunks.setdefault(msg_id, []).append(delta)
+                        last_id = msg_id
+                        if on_progress:
+                            on_progress(delta)
+            return "".join(chunks.get(last_id, ()))
+        except Exception as e:
+            return f"Error executing deep research: {e}"
+    return "DeerFlow unavailable — unable to load embedded DeerFlowClient."
 
 
 # ── Skills ────────────────────────────────────────────────────────────────────

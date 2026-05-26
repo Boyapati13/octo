@@ -4,5 +4,11 @@
     "path": "C:/Users/Tenders/tradingview-mcp",
     "desc": "",
     "active": false
+  },
+  {
+    "name": "octo",
+    "path": "C:/Users/Tenders/octo",
+    "desc": "",
+    "active": true
   }
 ]

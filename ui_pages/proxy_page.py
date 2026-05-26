@@ -91,6 +91,13 @@ class ProxyPage(OctoPage):
         except Exception:
             return {}
 
+    def _do_save_all(self):
+        try:
+            self._save_cfg()
+            self._on_status("✓ Proxy keys and Ollama settings saved.")
+        except Exception as e:
+            self._on_status(f"✕ Save failed: {e}")
+
     def _save_cfg(self) -> None:
         keys = {k: f.text().strip() for k, f in self._fields.items()}
         if hasattr(self, "_trading_model_cb") and self._trading_model_cb:
@@ -101,6 +108,7 @@ class ProxyPage(OctoPage):
             sync_proxy_env()
         except Exception as e:
             print(f"[OCTO] Proxy save error: {e}")
+            raise
 
         # Save ollama URL + selected model
         if self._ollama_url_f:
@@ -114,6 +122,7 @@ class ProxyPage(OctoPage):
                 _save_json(CONFIG_FILE, data)
             except Exception as e:
                 print(f"[OCTO] Ollama cfg save: {e}")
+                raise
 
     # ── port health ───────────────────────────────────────────────────────────
     def _check_proxy_port(self):
@@ -553,8 +562,7 @@ class ProxyPage(OctoPage):
         lay.addWidget(self.sep())
         save_row = QHBoxLayout()
         save_b = self.btn("▸  SAVE & SYNC ALL SETTINGS", color=PRI, height=34)
-        save_b.clicked.connect(lambda: [self._save_cfg(),
-                                        self._on_status("✓ Proxy keys and Ollama settings saved.")])
+        save_b.clicked.connect(self._do_save_all)
         save_row.addStretch(); save_row.addWidget(save_b)
         lay.addLayout(save_row)
         lay.addStretch()
