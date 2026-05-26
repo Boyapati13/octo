@@ -5,6 +5,7 @@ import json
 import sys
 import traceback
 from pathlib import Path
+import logging
 
 # Windows cp1252 terminals can't encode emoji — reconfigure stdout/stderr to UTF-8
 if hasattr(sys.stdout, "reconfigure"):
@@ -1310,8 +1311,8 @@ class OctoLive:
                 print(f"[OCTO] ❌ Realtime send failed: {e}")
                 try:
                     self.ui.write_log(f"ERR: realtime send failed — {str(e)[:120]}")
-                except Exception:
-                    pass
+                except Exception as inner_e:
+                    logging.error("Failed to write to UI log during realtime send failure", exc_info=inner_e)
 
     async def _listen_audio(self):
         print("[OCTO] 🎤 Mic started")
