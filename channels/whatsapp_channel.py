@@ -53,7 +53,7 @@ class WhatsAppChannel(Channel):
                 subprocess.run(
                     ["npm", "install"],
                     cwd=str(bridge_dir),
-                    shell=True,
+                    shell=False,
                     check=True,
                     timeout=180,
                     creationflags=0x08000000 if sys.platform == "win32" else 0
@@ -97,7 +97,7 @@ class WhatsAppChannel(Channel):
             self._process = subprocess.Popen(
                 cmd,
                 env=env,
-                shell=True,
+                shell=False,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 creationflags=0x08000000 if sys.platform == "win32" else 0
@@ -210,7 +210,7 @@ class WhatsAppChannel(Channel):
             # Run pairing process blocking so it holds until scanned or terminated
             subprocess.run(
                 cmd,
-                shell=True,
+                shell=False,
                 creationflags=0x08000000 if sys.platform == "win32" else 0
             )
             logger.info("[WhatsApp] QR pairing subprocess completed.")
