@@ -130,15 +130,18 @@ class _AgentWorker(QObject):
             def _on_chunk(chunk: str):
                 self.progress.emit(self.agent_id, chunk)
 
-            if is_running():
-                result = deep_research(goal_ctx, on_progress=_on_chunk)
-            else:
-                # Fallback: dev_agent / direct execution
-                from actions.dev_agent import dev_agent  # type: ignore
-                result = dev_agent(
-                    parameters={"task": self.goal, "working_dir": proj_root},
-                    player=None, speak=None,
-                )
+            # Use the full iterative multi-agent loop for advanced capabilities
+            from actions.multi_agent import multi_agent_loop
+            result = multi_agent_loop(
+                parameters={
+                    "task": self.goal,
+                    "working_dir": proj_root,
+                    "session_id": self.agent_id,
+                    "model": self.model
+                },
+                on_progress=_on_chunk,
+                player=None, speak=None,
+            )
             self.finished.emit(self.agent_id, result or "✅ Done.")
         except Exception as e:
             self.failed.emit(self.agent_id, str(e))
@@ -760,11 +763,23 @@ class _ProjectWorkspace(QWidget):
             if proxy_keys.get("openrouter_api_key"): models.append("openrouter/auto")
             if proxy_keys.get("deepseek_api_key"): models.append("deepseek-chat")
             
-            # Local ollama
+            # Local ollama dynamic detection
+            try:
+                import urllib.request
+                import json
+                req = urllib.request.Request("http://localhost:11434/api/tags", method="GET")
+                with urllib.request.urlopen(req, timeout=1.0) as r:
+                    data = json.loads(r.read())
+                    for m in data.get("models", []):
+                        models.append(f"ollama/{m['name']}")
+            except Exception:
+                models.extend(["ollama/llama3", "ollama/gemma3"])  # Local fallback if ollama offline during boot
+
             cfg = _load_json(CONFIG_FILE, {})
             ollama_m = cfg.get("ollama_model", "")
-            if ollama_m: models.append(f"ollama/{ollama_m}")
-            else: models.extend(["ollama/llama3", "ollama/gemma3"])
+            if ollama_m and f"ollama/{ollama_m}" not in models:
+                models.append(f"ollama/{ollama_m}")
+
         except Exception:
             models.extend(["gemini-2.5-flash", "ollama/llama3"])
             

@@ -107,8 +107,17 @@ class ExtensionsConfig(BaseModel):
             if project_config is not None:
                 return project_config
 
-            backend_dir = Path(__file__).resolve().parents[4]
-            repo_root = backend_dir.parent
+            # Fix for embedded deerflow path depth
+            current_dir = Path(__file__).resolve()
+            # Try to safely find the root by navigating up to 4 parents max, guarding against IndexError
+            try:
+                backend_dir = current_dir.parents[4]
+                repo_root = backend_dir.parent
+            except IndexError:
+                # Fallback to local root
+                backend_dir = current_dir.parents[2] # deerflow dir
+                repo_root = backend_dir.parent # main root
+
             for path in (
                 backend_dir / "extensions_config.json",
                 repo_root / "extensions_config.json",

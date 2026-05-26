@@ -36,6 +36,22 @@ models:
     supports_vision: true
 
 # ── IM Channels (set enabled: true + fill token to activate) ─────────────────
+  - name: ollama/llama3
+    display_name: "Ollama Llama 3"
+    use: deerflow.models.patched_openai:PatchedChatOpenAI
+    model: llama3
+    api_key: ollama
+    base_url: http://localhost:11434/v1
+    max_tokens: 4096
+
+  - name: ollama/gemma3
+    display_name: "Ollama Gemma 3"
+    use: deerflow.models.patched_openai:PatchedChatOpenAI
+    model: gemma3
+    api_key: ollama
+    base_url: http://localhost:11434/v1
+    max_tokens: 4096
+
 channels:
   telegram:
     enabled: false
