@@ -25,6 +25,21 @@
       "auto_start": true,
       "enabled": true,
       "icon": "💹"
+    },
+    {
+      "name": "octo-pro",
+      "label": "OCTO-Pro Autonomous Server",
+      "description": "OCTO's native tools: autonomous coding (dev_agent), sub-agent orchestration (deerflow), and deep web research.",
+      "transport": "stdio",
+      "command": "py",
+      "args": [
+        "-u",
+        "C:\\Users\\Tenders\\octo\\octo\\octo_mcp_server.py"
+      ],
+      "cwd": "C:\\Users\\Tenders\\octo\\octo",
+      "auto_start": true,
+      "enabled": true,
+      "icon": "🐙"
     }
   ]
 }
