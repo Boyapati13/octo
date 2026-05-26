@@ -338,6 +338,27 @@ OCTO is natively integrated with institutional-grade trading setups, making it a
 - **Backtesting & Optimization**: Deep integration with Python-based quantitative tools (like `investing-algorithm-framework`) allows vector-backtesting of the AI's decision logic against thousands of parameters.
 - **Hybrid Execution**: MT5 handles the lightning-fast tick-level execution and wick-rejection math, while the OCTO Python Brain processes the JSON telemetry to determine macro trend, sentiment, and trade permissions.
 
+### 🧠 Google TimesFM 2.5 Zero-Shot Forecaster
+- **Zero-Shot Engine**: Natively runs Google's advanced `timesfm-2.5-200m-pytorch` model on a 5-minute background cycle, forecasting 8–12 bars into the future with dynamic 80% prediction intervals.
+- **Unified IPC**: Automatically persists per-symbol cached directional biases (`BULL` / `BEAR` / `NEUTRAL`) and confidence metrics to both JSON and MQL5-compatible `timesfm_signal.json` files for instant read-out.
+- **Voice-Activated Insights**: Users can ask OCTO directly: *"What does the AI forecast for Gold?"* or *"Is the AI bullish on EURUSD?"* to receive spoken summaries with zero inference delay.
+
+### 🛡️ G4 Dynamic Risk Gate & Hot-Reloading
+- **Switchable Gating Modes**: Offers 4 distinct G4 risk-filtering modes:
+  - `BLOCK` — Actively blocks trades if TimesFM has high-confidence conflict with EA signals.
+  - `SOFT` — Halves position lot sizing if the AI disagrees with the direction.
+  - `WARN` — Allows full trade size but fires high-priority warning alerts via Telegram.
+  - `OFF` — Bypasses the G4 gate completely.
+- **Dynamic Configuration**: Hot-reloads all parameters at runtime from [live_bot_config.json](file:///C:/Users/Tenders/octo/octo/config/live_bot_config.json), allowing instant overrides without restarting the main trading bot.
+- **High-Fidelity Telegram Alerts**: Automatically enhances all trade execution, pending order, and warning alerts with dynamic G4 emojis and confidence scores.
+
+### 🌐 Graphify Workspace Knowledge Graph & Agent Tools
+- **Deep AST Extraction**: Maps the entire codebase recursively into a navigable knowledge graph consisting of **175,715 nodes** and **264,681 edges** across **11,566 communities**.
+- **Developer Agent Tools**: Automatically registers 3 premium tools inside the OCTO-Pro FastMCP server, letting sub-agents view, control, and update parameters:
+  - `octo_timesfm_forecast` — Pulls cached or fresh AI price predictions.
+  - `octo_risk_manager_status` — Reports current active G4 configuration and watchlist details.
+  - `octo_risk_manager_set_config` — Programmatically overrides gate modes and thresholds.
+
 ---
 
 ## 🚀 Deployment Sizing
