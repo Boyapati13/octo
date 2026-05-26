@@ -136,7 +136,11 @@ class _AgentWorker(QObject):
                 # Fallback: dev_agent / direct execution
                 from actions.dev_agent import dev_agent  # type: ignore
                 result = dev_agent(
-                    parameters={"task": self.goal, "working_dir": proj_root},
+                    parameters={
+                        "description": self.goal,
+                        "project_name": self.project.get('name', 'OCTO_project'),
+                        "working_dir": proj_root
+                    },
                     player=None, speak=None,
                 )
             self.finished.emit(self.agent_id, result or "✅ Done.")
