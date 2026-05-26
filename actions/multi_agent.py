@@ -28,6 +28,11 @@ def multi_agent_loop(
     session_id = p.get("session_id", "default")
     model = p.get("model", "auto")
 
+    # Map UI selection if necessary
+    if model == "deerflow/auto":
+        model = "gemini-2.5-flash"
+
+
     if not task:
         return "No task provided."
 
