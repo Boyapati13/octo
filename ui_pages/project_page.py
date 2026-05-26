@@ -130,19 +130,18 @@ class _AgentWorker(QObject):
             def _on_chunk(chunk: str):
                 self.progress.emit(self.agent_id, chunk)
 
-            if is_running():
-                result = deep_research(goal_ctx, on_progress=_on_chunk)
-            else:
-                # Fallback: dev_agent / direct execution
-                from actions.dev_agent import dev_agent  # type: ignore
-                result = dev_agent(
-                    parameters={
-                        "description": self.goal,
-                        "project_name": self.project.get('name', 'OCTO_project'),
-                        "working_dir": proj_root
-                    },
-                    player=None, speak=None,
-                )
+            # Use the full iterative multi-agent loop for advanced capabilities
+            from actions.multi_agent import multi_agent_loop
+            result = multi_agent_loop(
+                parameters={
+                    "task": self.goal,
+                    "working_dir": proj_root,
+                    "session_id": self.agent_id,
+                    "model": self.model
+                },
+                on_progress=_on_chunk,
+                player=None, speak=None,
+            )
             self.finished.emit(self.agent_id, result or "✅ Done.")
         except Exception as e:
             self.failed.emit(self.agent_id, str(e))
