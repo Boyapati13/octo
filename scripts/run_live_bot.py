@@ -25,6 +25,16 @@ if hasattr(sys.stderr, "reconfigure"):
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from news_sentinel import NewsSentinel
 from backtest_whale_engine import calc_poc_and_va
+from trading_risk_manager import TradingRiskManager   # G4 TimesFM gate
+
+# ── TimesFM forecaster import (may not be available — graceful fallback) ──────
+try:
+    from timesfm_forecaster import TimesFMForecaster as _TFMForecaster
+    _TFM_AVAILABLE = True
+except ImportError:
+    _TFM_AVAILABLE = False
+    print("[Bot] [WARN] timesfm_forecaster not found — G4 AI gate will use cached signals only")
+
 
 # === LOCAL HIGH-FIDELITY INDICATORS ==================================
 def calculate_ema(prices, period):
@@ -85,6 +95,24 @@ class HybridTradingBot:
         self.forex_symbols = ["EURUSD+", "GBPUSD+"]
         self.volume_symbols = ["NAS100", "XAUUSD+"]
         self.all_symbols = self.forex_symbols + self.volume_symbols
+        
+        # ── G4: TimesFM Risk Manager ──────────────────────────────────────────
+        # gate_mode options: "BLOCK" | "SOFT" | "WARN" | "OFF"
+        # Change mode at runtime: self.risk_manager.set_mode("BLOCK")
+        self.risk_manager = TradingRiskManager(
+            gate_mode="SOFT",        # default: halve lot when AI disagrees
+            min_confidence=0.65,     # only act on ≥65% AI confidence
+            max_signal_age_seconds=600,  # signal expires after 10 min
+        )
+        # Live forecaster (loaded once — heavy model, ~800MB)
+        self._tfm_forecaster = None
+        if _TFM_AVAILABLE:
+            try:
+                self._tfm_forecaster = _TFMForecaster()
+                print("[Bot] [G4] TimesFM model loaded — AI gate active")
+            except Exception as e:
+                print(f"[Bot] [G4] TimesFM load failed: {e} — using cached signals only")
+
         
         # Session configs for volume profiling
         self.sessions = {
@@ -157,7 +185,7 @@ class HybridTradingBot:
         except Exception as e:
             print(f"[Bot] [Telegram] [ERROR] Failed to send alert: {e}")
 
-    def execute_live_order(self, symbol: str, order_type: int, entry: float, sl: float, tp: float, lot: float):
+    def execute_live_order(self, symbol: str, order_type: int, entry: float, sl: float, tp: float, lot: float, gate: dict = None):
         """Executes a live market order (BUY or SELL) on MetaTrader 5."""
         s_info = mt5.symbol_info(symbol)
         if s_info is None:
@@ -192,7 +220,20 @@ class HybridTradingBot:
         if res and res.retcode == mt5.TRADE_RETCODE_DONE:
             print(f"[Bot] [SUCCESS] Market order #{res.deal} executed successfully.")
             type_name = "BUY" if order_type == mt5.ORDER_TYPE_BUY else "SELL"
-            msg = f"🚀 *[NEW MARKET ORDER EXECUTED]*\n\n*Symbol:* `{symbol}`\n*Type:* `{type_name}`\n*Price:* `{entry:.5f}`\n*Stop Loss:* `{sl:.5f}`\n*Take Profit:* `{tp:.5f}`\n*Lot Size:* `{lot:.2f}`"
+            # Build G4 AI tag for Telegram
+            ai_tag = ""
+            if gate:
+                ai_tag = (f"\n*G4 AI ({gate['mode']}):* `{gate['bias']} "
+                          f"{gate['confidence']*100:.0f}%` {gate['telegram_tag']}")
+                if gate['mode'] == 'WARN':
+                    ai_tag += " _(AI disagrees — check forecast)_"
+                elif gate['mode'] == 'SOFT':
+                    ai_tag += " _(lot halved — AI conflict)_"
+            msg = (f"\U0001f680 *[NEW MARKET ORDER EXECUTED]*\n\n"
+                   f"*Symbol:* `{symbol}`\n*Type:* `{type_name}`\n"
+                   f"*Price:* `{entry:.5f}`\n*Stop Loss:* `{sl:.5f}`\n"
+                   f"*Take Profit:* `{tp:.5f}`\n*Lot Size:* `{lot:.2f}`"
+                   f"{ai_tag}")
             self.send_telegram_alert(msg)
         else:
             err = res.retcode if res else "Unknown"
@@ -450,6 +491,22 @@ class HybridTradingBot:
                 print(f"[Bot] [INFO] Canceling orphaned volume limit order #{o.ticket} on {symbol} (Target hit or session closed)...")
                 mt5.order_send(request)
 
+    def refresh_timesfm_forecasts(self):
+        """Run TimesFM inference for all watchlist symbols. Called once per 5-min cycle."""
+        if self._tfm_forecaster is None:
+            return   # model not loaded — rely on cached signal files
+        print("[Bot] [G4] Refreshing TimesFM forecasts for portfolio...")
+        for symbol in self.all_symbols:
+            tf = self.risk_manager.tf_map.get(symbol, "H1")
+            try:
+                self._tfm_forecaster.forecast(
+                    symbol=symbol, timeframe=tf, horizon=8, context_bars=256,
+                    write_signal=True
+                )
+            except Exception as e:
+                print(f"[Bot] [G4] Forecast error for {symbol}: {e}")
+        print("[Bot] [G4] Portfolio forecasts updated.")
+
     def evaluate_live_market(self):
         self.manage_active_positions()
         self.manage_pending_limit_orders()
@@ -506,6 +563,7 @@ class HybridTradingBot:
                 continue
                 
             if buy_sig or sell_sig:
+                direction = "BUY" if buy_sig else "SELL"
                 entry = s_info.ask if buy_sig else s_info.bid
                 sl_dist_points = (4.0 * atr_1) / point
                 
@@ -515,11 +573,37 @@ class HybridTradingBot:
                     tp = entry + (5.0 * atr_1) if buy_sig else entry - (5.0 * atr_1)
                     
                     order_type = mt5.ORDER_TYPE_BUY if buy_sig else mt5.ORDER_TYPE_SELL
-                    
-                    # Execute Market Order
-                    self.execute_live_order(symbol, order_type, entry, sl, tp, lot)
-                    self.state[state_key] = last_bar_time
-                    self.save_state()
+
+                    # === G4: TimesFM AI direction gate ===
+                    gate = self.risk_manager.evaluate(symbol, direction)
+                    print(f"[Bot] [G4] {symbol} {direction}: {gate['reason']}")
+
+                    if gate["mode"] == "WARN" and gate["allow"] and gate["confidence"] >= self.risk_manager.min_conf:
+                        # Send Telegram warning before placing
+                        warn_msg = (f"\u26a0\ufe0f *[G4 AI WARNING — {self.risk_manager.gate_mode}]*\n"
+                                    f"*Symbol:* `{symbol}`\n"
+                                    f"*Signal:* `{direction}` vs TFM `{gate['bias']}` "
+                                    f"{gate['confidence']*100:.0f}%\n"
+                                    f"Trade will be placed — AI disagrees.")
+                        self.send_telegram_alert(warn_msg)
+
+                    if gate["allow"]:
+                        # Apply lot multiplier (SOFT mode halves lot, BLOCK would have allow=False)
+                        final_lot = max(s_info.volume_min, lot * gate["lot_mult"])
+                        step = s_info.volume_step
+                        final_lot = round(final_lot / step) * step
+
+                        self.execute_live_order(symbol, order_type, entry, sl, tp, final_lot, gate)
+                        self.state[state_key] = last_bar_time
+                        self.save_state()
+                    else:
+                        block_msg = (f"\U0001f6ab *[G4 TRADE BLOCKED — {self.risk_manager.gate_mode}]*\n"
+                                     f"*Symbol:* `{symbol}`\n"
+                                     f"*Signal:* `{direction}` vs TFM `{gate['bias']}` "
+                                     f"{gate['confidence']*100:.0f}%")
+                        self.send_telegram_alert(block_msg)
+                        print(f"[Bot] [G4] Trade BLOCKED for {symbol}.")
+
                     
         # === B. EVALUATE STOCK INDEX / METAL (M15 Pure Volume Matrix) ======
         for symbol in self.volume_symbols:
@@ -645,6 +729,7 @@ class HybridTradingBot:
                 continue
                 
             if buy_sig or sell_sig:
+                direction = "BUY" if buy_sig else "SELL"
                 if buy_sig:
                     lower_wick_size = bodyMin - float(sig_bar["low"])
                     entry_limit = bodyMin - (lower_wick_size * 0.50)
@@ -662,6 +747,34 @@ class HybridTradingBot:
                     
                 if sl_dist_points > 0:
                     lot = self.calculate_lot_size(symbol, risk_amount = risk_cash, sl_dist_points = sl_dist_points)
+
+                    # === G4: TimesFM AI direction gate ===
+                    gate = self.risk_manager.evaluate(symbol, direction)
+                    print(f"[Bot] [G4] {symbol} {direction}: {gate['reason']}")
+
+                    if gate["mode"] == "WARN" and gate["allow"] and gate["confidence"] >= self.risk_manager.min_conf:
+                        warn_msg = (f"\u26a0\ufe0f *[G4 AI WARNING — {self.risk_manager.gate_mode}]*\n"
+                                    f"*Symbol:* `{symbol}`\n"
+                                    f"*Signal:* `{direction}` vs TFM `{gate['bias']}` "
+                                    f"{gate['confidence']*100:.0f}%\n"
+                                    f"Limit order placed — AI disagrees.")
+                        self.send_telegram_alert(warn_msg)
+
+                    if not gate["allow"]:
+                        block_msg = (f"\U0001f6ab *[G4 TRADE BLOCKED — {self.risk_manager.gate_mode}]*\n"
+                                     f"*Symbol:* `{symbol}`\n"
+                                     f"*Signal:* `{direction}` vs TFM `{gate['bias']}` "
+                                     f"{gate['confidence']*100:.0f}%")
+                        self.send_telegram_alert(block_msg)
+                        print(f"[Bot] [G4] Limit order BLOCKED for {symbol}.")
+                        continue
+
+                    # Apply lot multiplier
+                    s_info2 = mt5.symbol_info(symbol)
+                    if s_info2:
+                        final_lot = max(s_info2.volume_min, lot * gate["lot_mult"])
+                        step2 = s_info2.volume_step
+                        lot = round(final_lot / step2) * step2
                     
                     # Submit pending LIMIT order
                     # Dynamic filling type selection
@@ -697,7 +810,13 @@ class HybridTradingBot:
                         self.save_state()
                         
                         type_name = "BUY LIMIT" if order_type == mt5.ORDER_TYPE_BUY_LIMIT else "SELL LIMIT"
-                        msg = f"🔔 *[NEW PENDING LIMIT ORDER]*\n\n*Symbol:* `{symbol}`\n*Type:* `{type_name}`\n*Entry Price:* `{entry_limit:.5f}`\n*Stop Loss:* `{sl:.5f}`\n*Take Profit:* `{tp:.5f}`\n*Lot Size:* `{lot:.2f}`"
+                        ai_tag = (f"\n*G4 AI ({gate['mode']}):* `{gate['bias']} "
+                                  f"{gate['confidence']*100:.0f}%` {gate['telegram_tag']}")
+                        msg = (f"\U0001f514 *[NEW PENDING LIMIT ORDER]*\n\n"
+                               f"*Symbol:* `{symbol}`\n*Type:* `{type_name}`\n"
+                               f"*Entry Price:* `{entry_limit:.5f}`\n*Stop Loss:* `{sl:.5f}`\n"
+                               f"*Take Profit:* `{tp:.5f}`\n*Lot Size:* `{lot:.2f}`"
+                               f"{ai_tag}")
                         self.send_telegram_alert(msg)
                     else:
                         err = res.retcode if res else "Unknown"
@@ -711,8 +830,13 @@ def main():
     bot = HybridTradingBot()
     if bot.initialize_mt5():
         print("[Bot] Production loop started. Monitoring portfolio...")
+        print(f"[Bot] [G4] Gate mode: {bot.risk_manager.gate_mode} | "
+              f"Min confidence: {bot.risk_manager.min_conf*100:.0f}%")
+        print("[Bot] [G4] To change mode: bot.risk_manager.set_mode('BLOCK') etc.")
         try:
             while True:
+                # Refresh TimesFM forecasts at the start of every 5-min cycle
+                bot.refresh_timesfm_forecasts()
                 bot.evaluate_live_market()
                 print(f"[Bot] Cycle complete ({datetime.now().strftime('%H:%M:%S')}). Waiting 300 seconds...")
                 time.sleep(300)
@@ -720,6 +844,7 @@ def main():
             print("[Bot] Exiting program clean via KeyboardInterrupt.")
         except Exception as e:
             print(f"[Bot] [ERROR] Exception in hybrid bot loop: {e}")
+
             
     mt5.shutdown()
     print("=" * 60)

@@ -16,3 +16,8 @@ agent_workspace/
 .venv/
 venv/
 scripts/whatsapp-bridge/
+
+# graphify
+graphify-out/manifest.json
+graphify-out/cost.json
+

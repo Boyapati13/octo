@@ -40,6 +40,8 @@ from actions.game_updater      import game_updater
 from actions.deep_research     import deep_research as deep_research_action
 from actions.deerflow_task     import deerflow_task as deerflow_task_action
 from actions.mcp_connect       import mcp_connect, mcp_tool_call, mcp_list
+from actions.timesfm_forecaster import timesfm_action  # G4: AI price forecasting
+
 
 
 def get_base_dir():
@@ -715,6 +717,39 @@ TOOL_DECLARATIONS = [
             "required": ["action"]
         }
     },
+    {
+        "name": "timesfm_forecast",
+        "description": (
+            "Runs Google's TimesFM 2.5 AI model to forecast price direction for any trading symbol. "
+            "Use when the user asks: 'forecast gold', 'what does the AI say about EURUSD', "
+            "'is TimesFM bullish on NAS100', 'show me the AI price prediction', "
+            "'what is the AI bias for my portfolio', 'fresh forecast for XAUUSD'. "
+            "Returns the directional bias (BULL/BEAR/NEUTRAL), confidence %, and expected price move. "
+            "Also works for: 'portfolio forecast', 'show all AI signals', 'AI says what about my watchlist'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "symbol":    {
+                    "type": "STRING",
+                    "description": "Symbol to forecast. Accepts common names: gold, eurusd, nasdaq, btc, oil. Leave empty for portfolio."
+                },
+                "mode":      {
+                    "type": "STRING",
+                    "description": "'cached' (instant, default) or 'fresh' (runs new inference, ~3 second delay)"
+                },
+                "horizon":   {
+                    "type": "INTEGER",
+                    "description": "How many bars ahead to forecast (default 8 = 8 hours on H1)"
+                },
+                "portfolio": {
+                    "type": "BOOLEAN",
+                    "description": "If true, return forecast for all watchlist symbols at once"
+                },
+            },
+            "required": []
+        }
+    },
 ]
 
 class OctoLive:
@@ -1212,6 +1247,15 @@ class OctoLive:
                     r = await loop.run_in_executor(None, _mt5_call)
                     result = r or "Done."
                     self.ui.write_log(f"[MT5] {mt5_tool} → {str(result)[:300]}")
+
+
+            elif name == "timesfm_forecast":
+                self.ui.write_log(f"[OCTO] 🤖 timesfm_forecast  {args}")
+                r = await loop.run_in_executor(
+                    None,
+                    lambda: timesfm_action(parameters=args, player=self.ui)
+                )
+                result = r or "Forecast unavailable — run the TimesFM forecaster first."
 
             else:
                 result = f"Unknown tool: {name}"
