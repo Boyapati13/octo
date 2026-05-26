@@ -210,6 +210,10 @@ def create_cron_job(prompt: str, schedule: str, label: str = "") -> dict | None:
         log.warning("[Cron] %s", e)
         return None
 
+    hermes_agent_path = str(BASE_DIR / "hermes-agent")
+    if hermes_agent_path not in sys.path and Path(hermes_agent_path).exists():
+        sys.path.insert(0, hermes_agent_path)
+
 
 # ── Gateway ───────────────────────────────────────────────────────────────────
 
