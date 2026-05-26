@@ -24,7 +24,7 @@ from cli.process_registry import (
     register_pid,
     unregister_pid,
 )
-from config.paths import config_dir_path, legacy_env_paths, managed_env_path
+from config.paths import config_dir_path, managed_env_path
 from config.settings import Settings, get_settings
 
 PROXY_PREFLIGHT_PATH = "/health"
@@ -157,14 +157,6 @@ def _migrate_legacy_env_if_missing() -> Path | None:
     env_file = managed_env_path()
     if env_file.exists():
         return None
-
-    # TODO: Remove after the ~/.fcc/.env migration has had a release cycle.
-    for legacy_env in legacy_env_paths():
-        if not legacy_env.is_file():
-            continue
-        env_file.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(legacy_env, env_file)
-        return legacy_env
 
     return None
 
