@@ -86,8 +86,48 @@ def multi_agent_loop(
             log.error(err_msg)
             return err_msg
 
+    # If this is an Ollama model, we inject it into DeerFlow's config so it doesn't fail validation
+    _injected_config = False
+    try:
+        if model.startswith("ollama/"):
+            from deerflow.config import get_app_config
+            from deerflow.config.app_config import push_current_app_config, ModelConfig
+
+            cfg = get_app_config()
+            # Copy models to not mutate singleton
+            new_models = list(cfg.models)
+            model_name = model.split("ollama/")[-1]
+
+            # Check if it already exists
+            if not any(m.name == model for m in new_models):
+                new_model = ModelConfig(
+                    name=model,
+                    display_name=f"Ollama {model_name}",
+                    use="deerflow.models.patched_openai:PatchedChatOpenAI",
+                    model=model_name,
+                    api_key="ollama",
+                    base_url="http://localhost:11434/v1",
+                    max_tokens=8192
+                )
+                new_models.append(new_model)
+                # Create a copy of the config with the new models
+                new_cfg = cfg.model_copy(update={"models": new_models})
+                push_current_app_config(new_cfg)
+                _injected_config = True
+    except Exception as e:
+        log.warning(f"Failed to inject dynamic ollama model config: {e}")
+
     # FALLBACK: Embedded client
     client = _get_embedded_client()
+    if not client:
+        # If client couldn't be loaded, we must clean up the injected config
+        if _injected_config:
+            try:
+                from deerflow.config.app_config import pop_current_app_config
+                pop_current_app_config()
+            except Exception:
+                pass
+
     if client:
         try:
             if on_progress:
@@ -106,8 +146,20 @@ def multi_agent_loop(
                             on_progress(delta)
 
             final_output = "".join(chunks_dict.get(last_id, ()))
+            if _injected_config:
+                try:
+                    from deerflow.config.app_config import pop_current_app_config
+                    pop_current_app_config()
+                except Exception:
+                    pass
             return final_output if final_output else "Task completed (no output)."
         except Exception as e:
+            if _injected_config:
+                try:
+                    from deerflow.config.app_config import pop_current_app_config
+                    pop_current_app_config()
+                except Exception:
+                    pass
             err_msg = f"Multi-agent embedded execution failed: {e}"
             log.error(err_msg)
             return err_msg

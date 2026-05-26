@@ -763,11 +763,23 @@ class _ProjectWorkspace(QWidget):
             if proxy_keys.get("openrouter_api_key"): models.append("openrouter/auto")
             if proxy_keys.get("deepseek_api_key"): models.append("deepseek-chat")
             
-            # Local ollama
+            # Local ollama dynamic detection
+            try:
+                import urllib.request
+                import json
+                req = urllib.request.Request("http://localhost:11434/api/tags", method="GET")
+                with urllib.request.urlopen(req, timeout=1.0) as r:
+                    data = json.loads(r.read())
+                    for m in data.get("models", []):
+                        models.append(f"ollama/{m['name']}")
+            except Exception:
+                models.extend(["ollama/llama3", "ollama/gemma3"])  # Local fallback if ollama offline during boot
+
             cfg = _load_json(CONFIG_FILE, {})
             ollama_m = cfg.get("ollama_model", "")
-            if ollama_m: models.append(f"ollama/{ollama_m}")
-            else: models.extend(["ollama/llama3", "ollama/gemma3"])
+            if ollama_m and f"ollama/{ollama_m}" not in models:
+                models.append(f"ollama/{ollama_m}")
+
         except Exception:
             models.extend(["gemini-2.5-flash", "ollama/llama3"])
             
