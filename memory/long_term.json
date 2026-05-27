@@ -1,33 +1,7 @@
 {
-  "identity": {
-    "name": {
-      "value": "Shiva",
-      "updated": "2026-05-18"
-    },
-    "birth_year": {
-      "value": "1934",
-      "updated": "2026-05-23"
-    },
-    "language": {
-      "value": "Abkhaz",
-      "updated": "2026-05-26"
-    }
-  },
+  "identity": {},
   "preferences": {},
-  "projects": {
-    "projects": {
-      "value": "hands on systems",
-      "updated": "2026-05-18"
-    },
-    "daily_brief_news_source": {
-      "value": "https://www.forexfactory.com/",
-      "updated": "2026-05-21"
-    },
-    "go_to_gym": {
-      "value": "Go to the gym",
-      "updated": "2026-05-26"
-    }
-  },
+  "projects": {},
   "relationships": {},
   "wishes": {},
   "notes": {}
