@@ -281,7 +281,8 @@ The bot maintains high expectancy over time by executing a 24-hour self-optimizi
 ┌────────────────────────────────────────────────────────┐
 │             Parameter Reload & Telemetry               │
 ├────────────────────────────────────────────────────────┤
-│ - Persists config to config/optimal_parameters_*.json  │
+│ - Generates config/optimal_parameters_{symbol}.json  │
+│   (runtime-created by bot — does not pre-exist)      │
 │ - Writes profile to MT5 Terminal Common Files          │
 │ - Fires real-time parameters alert to Telegram         │
 │ - Live bot hot-reloads parameters on the next cycle     │

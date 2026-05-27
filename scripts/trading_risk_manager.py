@@ -138,8 +138,32 @@ class TradingRiskManager:
         macro_bias = "NEUTRAL"
         
         if sentiment_data:
+            # ── Staleness Guard: discard macro data older than 4 hours ──────────
+            generated_at = sentiment_data.get("generated_at", "")
+            if generated_at:
+                try:
+                    from datetime import timezone as _tz
+                    gen_ts = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+                    age_hours = (datetime.now(_tz.utc) - gen_ts).total_seconds() / 3600.0
+                    if age_hours > 4.0:
+                        print(f"[RiskMgr] [WARN] macro_sentiment.json is {age_hours:.1f}h old — ignoring stale data")
+                        sentiment_data = None
+                except Exception:
+                    pass
+
+        if sentiment_data:
             macro_risk = sentiment_data.get("geopolitical_risk", "LOW")
-            macro_bias = sentiment_data.get("macro_bias", {}).get(symbol_upper, "NEUTRAL").upper()
+            raw_bias = sentiment_data.get("macro_bias", {})
+            # Direct lookup first; then proxy fallback for symbols not in crawler output
+            _proxy_map = {
+                "XAUEUR+": "XAUUSD+",  # Gold priced in EUR — same safe-haven bias as XAUUSD+
+                "BTCUSD":  "NAS100",   # BTC tracks risk-on/risk-off similar to Nasdaq
+                "CL-OIL":  "XAUUSD+",  # Crude oil — energy geopolitical risk proxy
+            }
+            macro_bias = raw_bias.get(
+                symbol_upper,
+                raw_bias.get(_proxy_map.get(symbol_upper, ""), "NEUTRAL")
+            ).upper()
             
             if macro_risk in ["HIGH", "CRITICAL"]:
                 if direction == "BUY" and macro_bias == "BEARISH":

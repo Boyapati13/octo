@@ -168,7 +168,7 @@ def timesfm_action(
                 sys.path.insert(0, scripts_path)
             from timesfm_forecaster import TimesFMForecaster
             tfm = TimesFMForecaster()
-            result_sig = tfm.forecast(
+            result_sig = tfm.get_forecast(
                 symbol=symbol, timeframe="H1", horizon=horizon,
                 context_bars=256, write_signal=True
             )
