@@ -86,6 +86,79 @@ def calculate_atr(highs, lows, closes, period):
         atr[i] = (atr[i-1] * (period - 1) + tr[i]) / period
     return atr
 
+def calculate_macd(prices, fast=12, slow=26, signal=9):
+    ema_fast = calculate_ema(prices, fast)
+    ema_slow = calculate_ema(prices, slow)
+    macd_line = ema_fast - ema_slow
+    signal_line = calculate_ema(macd_line, signal)
+    histogram = macd_line - signal_line
+    return macd_line, signal_line, histogram
+
+def calculate_adx(highs, lows, closes, period=14):
+    n = len(closes)
+    adx = np.zeros(n)
+    if n <= period * 2:
+        return adx
+    
+    tr = np.zeros(n)
+    plus_dm = np.zeros(n)
+    minus_dm = np.zeros(n)
+    
+    for i in range(1, n):
+        up_move = highs[i] - highs[i-1]
+        down_move = lows[i-1] - lows[i]
+        
+        tr[i] = max(highs[i] - lows[i], abs(highs[i] - closes[i-1]), abs(lows[i] - closes[i-1]))
+        
+        if up_move > down_move and up_move > 0:
+            plus_dm[i] = up_move
+        if down_move > up_move and down_move > 0:
+            minus_dm[i] = down_move
+            
+    atr = calculate_atr(highs, lows, closes, period)
+    
+    smooth_plus_dm = np.zeros(n)
+    smooth_minus_dm = np.zeros(n)
+    
+    smooth_plus_dm[period] = plus_dm[1:period+1].sum()
+    smooth_minus_dm[period] = minus_dm[1:period+1].sum()
+    
+    for i in range(period + 1, n):
+        smooth_plus_dm[i] = smooth_plus_dm[i-1] - (smooth_plus_dm[i-1] / period) + plus_dm[i]
+        smooth_minus_dm[i] = smooth_minus_dm[i-1] - (smooth_minus_dm[i-1] / period) + minus_dm[i]
+        
+    plus_di = 100.0 * (smooth_plus_dm / np.maximum(atr * period, 1e-10))
+    minus_di = 100.0 * (smooth_minus_dm / np.maximum(atr * period, 1e-10))
+    
+    dx = 100.0 * (abs(plus_di - minus_di) / np.maximum(plus_di + minus_di, 1e-10))
+    
+    adx[period*2] = dx[period:period*2+1].mean()
+    for i in range(period*2 + 1, n):
+        adx[i] = (adx[i-1] * (period - 1) + dx[i]) / period
+        
+    return adx
+
+def calculate_vwap(closes, volumes):
+    n = len(closes)
+    vwap = np.zeros(n)
+    if n == 0:
+        return vwap
+    accum_pv = 0.0
+    accum_vol = 0.0
+    for i in range(n):
+        accum_pv += closes[i] * volumes[i]
+        accum_vol += volumes[i]
+        vwap[i] = accum_pv / max(accum_vol, 1.0)
+    return vwap
+
+def find_swing_levels(highs, lows, lookback=100):
+    n = len(highs)
+    if n < lookback:
+        return float(max(highs)), float(min(lows))
+    sub_highs = highs[-lookback:]
+    sub_lows = lows[-lookback:]
+    return float(max(sub_highs)), float(min(sub_lows))
+
 class HybridTradingBot:
     def __init__(self, magic_number: int = 991206):
         self.magic_number = magic_number
@@ -554,6 +627,10 @@ class HybridTradingBot:
             rsi14 = calculate_rsi(closes, 14)
             atr14 = calculate_atr(highs, lows, closes, 14)
             
+            # Calculate new advanced indicators
+            macd_line, signal_line, macd_hist = calculate_macd(closes, 12, 26, 9)
+            adx = calculate_adx(highs, lows, closes, 14)
+            
             # Checks completed bar 1 indices
             ema25_1 = ema25[-2]
             ema135_1 = ema135[-2]
@@ -561,8 +638,25 @@ class HybridTradingBot:
             rsi_2 = rsi14[-3]
             atr_1 = atr14[-2]
             
-            buy_sig = (ema25_1 > ema135_1) and (rsi_2 <= 40.0 and rsi_1 > 40.0)
-            sell_sig = (ema25_1 < ema135_1) and (rsi_2 >= 60.0 and rsi_1 < 60.0)
+            macd_l1 = macd_line[-2]
+            macd_s1 = signal_line[-2]
+            macd_h1 = macd_hist[-2]
+            adx_1 = adx[-2] if len(adx) > 28 else 0.0
+            
+            # Confluence Logic
+            macd_buy_align = (macd_l1 > macd_s1) or (macd_h1 > 0.0)
+            macd_sell_align = (macd_l1 < macd_s1) or (macd_h1 < 0.0)
+            
+            # Trend strength filter
+            strong_trend = (adx_1 > 30.0)
+            major_bull = (closes[-2] > ema135_1)
+            major_bear = (closes[-2] < ema135_1)
+            
+            buy_trend_ok = not (strong_trend and major_bear)
+            sell_trend_ok = not (strong_trend and major_bull)
+            
+            buy_sig = (ema25_1 > ema135_1) and (rsi_2 <= 40.0 and rsi_1 > 40.0) and macd_buy_align and buy_trend_ok
+            sell_sig = (ema25_1 < ema135_1) and (rsi_2 >= 60.0 and rsi_1 < 60.0) and macd_sell_align and sell_trend_ok
             
             # In live, check if we already traded this H1 bar time to prevent double entries
             last_bar_time = int(rates[-2]["time"])
@@ -703,6 +797,10 @@ class HybridTradingBot:
             # Volume Profile
             lookback_rates = rates[-active_s["lookback"] - 1 : -1]
             closes = np.array([float(x["close"]) for x in lookback_rates])
+            vols = np.array([float(x["tick_volume"]) for x in lookback_rates])
+            highs_m15 = np.array([float(x["high"]) for x in lookback_rates])
+            lows_m15 = np.array([float(x["low"]) for x in lookback_rates])
+            
             min_p = min(closes)
             max_p = max(closes)
             step = max(max_p - min_p, point * 10) / active_s["bins"]
@@ -714,6 +812,11 @@ class HybridTradingBot:
                 bins[bn] += float(sc["tick_volume"])
                 
             poc, vah, val, poc_bin = calc_poc_and_va(bins, active_s["bins"], min_p, step)
+            
+            # Calculate new advanced indicators
+            vwap = calculate_vwap(closes, vols)
+            vwap_val = vwap[-1]
+            swing_high, swing_low = find_swing_levels(highs_m15, lows_m15, 100)
             
             # Proximity
             tol_price = active_s["tol"] * point
@@ -728,8 +831,12 @@ class HybridTradingBot:
             sweepsPdl = (abs(float(sig_bar["low"]) - pdl) <= tol_price)
             sweepsPdh = (abs(float(sig_bar["high"]) - pdh) <= tol_price)
             
-            buy_sig = lowNearValOrPoc and sweepsPdl and lowerWickVsaRejection and institutionalAbsorption and isHighVolumeCandle
-            sell_sig = highNearVahOrPoc and sweepsPdh and upperWickVsaRejection and institutionalAbsorption and isHighVolumeCandle
+            # VWAP Gating
+            buy_vwap_ok = (float(sig_bar["close"]) < vwap_val)
+            sell_vwap_ok = (float(sig_bar["close"]) > vwap_val)
+            
+            buy_sig = lowNearValOrPoc and sweepsPdl and lowerWickVsaRejection and institutionalAbsorption and isHighVolumeCandle and buy_vwap_ok
+            sell_sig = highNearVahOrPoc and sweepsPdh and upperWickVsaRejection and institutionalAbsorption and isHighVolumeCandle and sell_vwap_ok
             
             # In live, check if we already placed order for this specific M15 bar
             last_m15_time = int(sig_bar["time"])
@@ -744,14 +851,14 @@ class HybridTradingBot:
                     lower_wick_size = bodyMin - float(sig_bar["low"])
                     entry_limit = bodyMin - (lower_wick_size * 0.50)
                     sl = float(sig_bar["low"]) - (20 * point)
-                    tp = vah
+                    tp = min(vah, swing_high)
                     sl_dist_points = (entry_limit - sl) / point
                     order_type = mt5.ORDER_TYPE_BUY_LIMIT
                 else:
                     upper_wick_size = float(sig_bar["high"]) - bodyMax
                     entry_limit = bodyMax + (upper_wick_size * 0.50)
                     sl = float(sig_bar["high"]) + (20 * point)
-                    tp = val
+                    tp = max(val, swing_low)
                     sl_dist_points = (sl - entry_limit) / point
                     order_type = mt5.ORDER_TYPE_SELL_LIMIT
                     
@@ -838,28 +945,62 @@ def main():
     print("=" * 60)
     
     bot = HybridTradingBot()
-    if bot.initialize_mt5():
-        print("[Bot] Production loop started. Monitoring portfolio...")
-        print(f"[Bot] [G4] Gate mode: {bot.risk_manager.gate_mode} | "
-              f"Min confidence: {bot.risk_manager.min_conf*100:.0f}%")
-        print("[Bot] [G4] To change mode: bot.risk_manager.set_mode('BLOCK') etc.")
-        try:
-            while True:
+    
+    # 24/7 Resilient Reconnection Loop
+    print("[Bot] Production loop started. Entering persistent 24/7 state machine...")
+    print(f"[Bot] [G4] Gate mode: {bot.risk_manager.gate_mode} | "
+          f"Min confidence: {bot.risk_manager.min_conf*100:.0f}%")
+    print("[Bot] [G4] To change mode: bot.risk_manager.set_mode('BLOCK') etc.")
+    
+    try:
+        while True:
+            # 1. Ensure MT5 is active and connected
+            mt5_connected = False
+            try:
+                info = mt5.terminal_info()
+                if info is not None:
+                    mt5_connected = True
+            except Exception:
+                pass
+                
+            if not mt5_connected:
+                print("[Bot] [Warning] MT5 terminal not connected. Attempting clean initialization...")
+                mt5.shutdown() # shutdown any stale connection
+                time.sleep(2)
+                if bot.initialize_mt5():
+                    print("[Bot] [SUCCESS] Re-established connection to MetaTrader 5.")
+                else:
+                    print("[Bot] [Error] Failed to connect to MetaTrader 5. Retrying in 10 seconds...")
+                    time.sleep(10)
+                    continue
+
+            # 2. Execute a single production cycle with safety guards
+            try:
                 # Refresh macroeconomic & geopolitical risk indicators
                 bot.refresh_macro_sentiment()
                 # Refresh TimesFM forecasts at the start of every 5-min cycle
                 bot.refresh_timesfm_forecasts()
-                bot.evaluate_live_market()
-                print(f"[Bot] Cycle complete ({datetime.now().strftime('%H:%M:%S')}). Waiting 300 seconds...")
-                time.sleep(300)
-        except KeyboardInterrupt:
-            print("[Bot] Exiting program clean via KeyboardInterrupt.")
-        except Exception as e:
-            print(f"[Bot] [ERROR] Exception in hybrid bot loop: {e}")
-
-            
-    mt5.shutdown()
-    print("=" * 60)
+                
+                # Double check connection is still active before evaluating live markets
+                if mt5.terminal_info() is not None:
+                    bot.evaluate_live_market()
+                    print(f"[Bot] Cycle complete ({datetime.now().strftime('%H:%M:%S')}). Waiting 300 seconds...")
+                    time.sleep(300)
+                else:
+                    print("[Bot] [Warning] Connection dropped during cycle. Re-evaluating next iteration...")
+                    time.sleep(5)
+            except KeyboardInterrupt:
+                raise KeyboardInterrupt
+            except Exception as e:
+                print(f"[Bot] [ERROR] Exception caught during production cycle: {e}")
+                print("[Bot] State machine recovering. Sleeping 10 seconds before next attempt...")
+                time.sleep(10)
+                
+    except KeyboardInterrupt:
+        print("[Bot] Exiting program clean via KeyboardInterrupt.")
+    finally:
+        mt5.shutdown()
+        print("=" * 60)
 
 if __name__ == "__main__":
     main()
