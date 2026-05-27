@@ -8,9 +8,11 @@ news shield to protect automated trading systems from massive news-spike drawdow
 
 import sys
 import os
+import json
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
 class NewsSentinel:
     def __init__(self):
@@ -99,13 +101,13 @@ class NewsSentinel:
         return events
 
     def check_risk_status(self, symbol: str) -> dict:
-        """Evaluates whether active trading should be blocked due to upcoming news spikes."""
+        """Evaluates whether active trading should be blocked due to economic calendar news or macro geopolitical tensions."""
+        # 1. Check scheduled high-impact events
         events = self.fetch_high_impact_events()
-        if not events:
-            return {"status": "CLEAR", "reason": "No high-impact economic events scraped."}
-            
-        # Map symbol to its primary target currencies
-        target_currencies = ["USD"] # USD is default for gold, crypto, major indices
+        calendar_threat = False
+        active_news_blocks = []
+        
+        target_currencies = ["USD"]
         symbol_upper = symbol.upper()
         if "EUR" in symbol_upper:
             target_currencies.append("EUR")
@@ -117,28 +119,59 @@ class NewsSentinel:
             target_currencies.append("CAD")
         if "AUD" in symbol_upper:
             target_currencies.append("AUD")
-            
-        active_news_blocks = []
+
+        if events:
+            for ev in events:
+                if ev["currency"] in target_currencies:
+                    time_str = ev["time"].lower()
+                    if "day" in time_str or "tentative" in time_str or not time_str:
+                        continue
+                    active_news_blocks.append(ev)
+                    calendar_threat = True
+
+        # 2. Check live geopolitical and macroeconomic tension levels
+        macro_risk = "LOW"
+        macro_bias = "NEUTRAL"
+        macro_sentiment_file = Path(__file__).resolve().parent / "macro_sentiment.json"
         
-        for ev in events:
-            if ev["currency"] in target_currencies:
-                # Filter out low impact / all-day events if they don't list a specific time
-                time_str = ev["time"].lower()
-                if "day" in time_str or "tentative" in time_str or not time_str:
-                    continue
-                    
-                # Forex Factory home page times are typically Eastern Time (EST/EDT)
-                # Let's print the threat
-                active_news_blocks.append(ev)
-                
-        if active_news_blocks:
-            return {
-                "status": "THREAT_DETECTED",
-                "reason": f"High-Impact Red Folder news scheduled today for {', '.join(target_currencies)}",
-                "events": active_news_blocks
-            }
+        # Fallback to MT5 common folder
+        common_sentiment_file = Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal" / "Common" / "Files" / "macro_sentiment.json"
+        
+        sentiment_data = None
+        if macro_sentiment_file.exists():
+            try:
+                sentiment_data = json.loads(macro_sentiment_file.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        if sentiment_data is None and common_sentiment_file.exists():
+            try:
+                sentiment_data = json.loads(common_sentiment_file.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+
+        if sentiment_data:
+            macro_risk = sentiment_data.get("geopolitical_risk", "LOW")
+            macro_bias = sentiment_data.get("macro_bias", {}).get(symbol_upper, "NEUTRAL")
+
+        # Decision making
+        status = "CLEAR"
+        reason = "No economic threats or geopolitical blockages active."
+        
+        if calendar_threat:
+            status = "THREAT_DETECTED"
+            reason = f"High-Impact Red Folder news scheduled today for {', '.join(target_currencies)}"
+        elif macro_risk == "CRITICAL" and macro_bias == "BEARISH":
+            status = "MACRO_BLOCKED"
+            reason = f"Geopolitical risk is CRITICAL with BEARISH macro bias for {symbol}."
             
-        return {"status": "CLEAR", "reason": "No high-impact economic threats scheduled today for target currencies."}
+        return {
+            "status": status,
+            "reason": reason,
+            "events": active_news_blocks,
+            "geopolitical_risk": macro_risk,
+            "macro_bias": macro_bias,
+            "sentiment_data": sentiment_data
+        }
 
 def main():
     print("=" * 60)

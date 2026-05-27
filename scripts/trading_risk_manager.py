@@ -110,65 +110,123 @@ class TradingRiskManager:
 
     def evaluate(self, symbol: str, direction: str) -> dict:
         """
-        Evaluate whether to allow/modify a proposed trade.
-
-        Returns dict:
-          allow     : bool   — whether to place the trade
-          lot_mult  : float  — multiply base lot by this (1.0 = full, 0.5 = half)
-          bias      : str    — "BULL" | "BEAR" | "NEUTRAL"
-          confidence: float  — 0.0–1.0
-          mode      : str    — gate mode used
-          reason    : str    — human-readable explanation
-          telegram_tag: str  — emoji tag for Telegram alert
+        Evaluate whether to allow/modify a proposed trade based on technical forecasts
+        and senior quantitative geopolitical macroeconomic risk sentiment gating.
         """
         self.load_config()  # Dynamic hot-reload of config!
         direction = direction.upper()
+        symbol_upper = symbol.upper()
 
+        # ── 1. Geopolitical & Macro Risk Assessment ──────────────────────────
+        macro_sentiment_file = _SCRIPT_DIR / "macro_sentiment.json"
+        common_sentiment_file = _MT5_COMMON_FILES / "macro_sentiment.json" if _MT5_COMMON_FILES.exists() else None
+        
+        sentiment_data = None
+        if macro_sentiment_file.exists():
+            try:
+                sentiment_data = json.loads(macro_sentiment_file.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        if sentiment_data is None and common_sentiment_file and common_sentiment_file.exists():
+            try:
+                sentiment_data = json.loads(common_sentiment_file.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+
+        macro_conflict = False
+        macro_risk = "LOW"
+        macro_bias = "NEUTRAL"
+        
+        if sentiment_data:
+            macro_risk = sentiment_data.get("geopolitical_risk", "LOW")
+            macro_bias = sentiment_data.get("macro_bias", {}).get(symbol_upper, "NEUTRAL").upper()
+            
+            if macro_risk in ["HIGH", "CRITICAL"]:
+                if direction == "BUY" and macro_bias == "BEARISH":
+                    macro_conflict = True
+                elif direction == "SELL" and macro_bias == "BULLISH":
+                    macro_conflict = True
+
+        # ── 2. Handle G4 TimesFM Gate ──────────────────────────────────────────
         if self.gate_mode == "OFF":
+            if macro_conflict and macro_risk == "CRITICAL":
+                # Even if G4 gate is OFF, a CRITICAL macro conflict triggers a SOFT lot-halving for safety
+                return {
+                    "allow": True, "lot_mult": 0.5, "bias": macro_bias, "confidence": 1.0,
+                    "mode": "MACRO_SOFT", "reason": f"CRITICAL macro bias is {macro_bias} conflict",
+                    "telegram_tag": "⚠️"
+                }
             return self._allow(direction, "NEUTRAL", 0.0, "G4 gate is OFF")
 
+        # Check technical TimesFM signal
         signal = self._read_signal(symbol)
+        
+        # Base decision on TimesFM
+        allow = True
+        lot_mult = 1.0
+        tfm_bias = "NEUTRAL"
+        tfm_conf = 0.0
+        reason = "No G4 or macro signals active — gate open"
+        tag = "➖"
+        mode_used = "ALLOW"
 
-        if signal is None:
-            # No signal file — fail open (allow trade, no block)
-            return self._allow(direction, "NEUTRAL", 0.0,
-                               "No TFM signal file — gate open")
+        if signal is not None:
+            tfm_bias   = signal.get("bias", "NEUTRAL").upper()
+            tfm_conf   = float(signal.get("confidence", 0.0))
+            
+            tfm_conflicts = (
+                (direction == "BUY"  and tfm_bias == "BEAR") or
+                (direction == "SELL" and tfm_bias == "BULL")
+            )
+            tfm_aligns = (
+                (direction == "BUY"  and tfm_bias == "BULL") or
+                (direction == "SELL" and tfm_bias == "BEAR")
+            )
+            
+            tfm_high_conf = tfm_conf >= self.min_conf
+            
+            if tfm_conflicts and tfm_high_conf:
+                reason = f"TFM says {tfm_bias} {tfm_conf*100:.0f}% but signal is {direction}"
+                if self.gate_mode == "BLOCK":
+                    allow = False
+                    lot_mult = 0.0
+                    mode_used = "BLOCK"
+                    tag = "🚫"
+                elif self.gate_mode == "SOFT":
+                    lot_mult = 0.5
+                    mode_used = "SOFT"
+                    tag = "⚠️"
+                elif self.gate_mode == "WARN":
+                    mode_used = "WARN"
+                    tag = "⚠️"
+            elif tfm_aligns:
+                tag = "✅"
+                reason = f"TFM {tfm_bias} {tfm_conf*100:.0f}% ALIGNED"
 
-        bias       = signal.get("bias", "NEUTRAL").upper()
-        confidence = float(signal.get("confidence", 0.0))
-        pct_change = float(signal.get("pct_change", 0.0))
+        # ── 3. Overlay Macro Risk Gate Decision ───────────────────────────────
+        if macro_conflict:
+            macro_reason = f"Senior Quant Macro Alert: Geopolitical risk is {macro_risk} with contrary {macro_bias} bias"
+            if self.gate_mode == "BLOCK":
+                allow = False
+                lot_mult = 0.0
+                reason = f"{macro_reason} | {reason}"
+                mode_used = "MACRO_BLOCK"
+                tag = "🚫"
+            elif self.gate_mode == "SOFT" or self.gate_mode == "WARN":
+                lot_mult = 0.5 if self.gate_mode == "SOFT" else lot_mult
+                reason = f"{macro_reason} | {reason}"
+                mode_used = "MACRO_SOFT" if self.gate_mode == "SOFT" else "MACRO_WARN"
+                tag = "⚠️"
 
-        # Determine if TFM conflicts with the proposed direction
-        conflicts = (
-            (direction == "BUY"  and bias == "BEAR") or
-            (direction == "SELL" and bias == "BULL")
-        )
-        aligns = (
-            (direction == "BUY"  and bias == "BULL") or
-            (direction == "SELL" and bias == "BEAR")
-        )
-
-        high_conf = confidence >= self.min_conf
-
-        if not conflicts or not high_conf:
-            # No meaningful conflict — allow full trade
-            tag = "✅" if aligns else "➖"
-            reason = (f"TFM {bias} {confidence*100:.0f}% "
-                      f"{'ALIGNED' if aligns else 'NEUTRAL — gate open'}")
-            return self._allow(direction, bias, confidence, reason, tag)
-
-        # ── Conflict detected ──────────────────────────────────────────────
-        reason = (f"TFM says {bias} {confidence*100:.0f}% "
-                  f"but signal is {direction}")
-
-        if self.gate_mode == "BLOCK":
-            return self._block(direction, bias, confidence, reason)
-
-        elif self.gate_mode == "SOFT":
-            return self._soft(direction, bias, confidence, reason)
-
-        else:  # WARN
-            return self._warn(direction, bias, confidence, reason)
+        return {
+            "allow": allow,
+            "lot_mult": lot_mult,
+            "bias": tfm_bias if tfm_bias != "NEUTRAL" else macro_bias,
+            "confidence": tfm_conf if tfm_conf > 0.0 else (1.0 if macro_conflict else 0.5),
+            "mode": mode_used,
+            "reason": reason,
+            "telegram_tag": tag
+        }
 
     def set_mode(self, mode: GateMode):
         """Hot-swap gate mode and save config."""

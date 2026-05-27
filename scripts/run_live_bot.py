@@ -24,6 +24,7 @@ if hasattr(sys.stderr, "reconfigure"):
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from news_sentinel import NewsSentinel
+from macro_sentiment_analyst import MacroSentimentAnalyst
 from backtest_whale_engine import calc_poc_and_va
 from trading_risk_manager import TradingRiskManager   # G4 TimesFM gate
 
@@ -89,6 +90,7 @@ class HybridTradingBot:
     def __init__(self, magic_number: int = 991206):
         self.magic_number = magic_number
         self.sentinel = NewsSentinel()
+        self.macro_analyst = MacroSentimentAnalyst()
         self.risk_pct = 1.0  # Risk exactly 1.0% of active balance per trade
         
         # Portfolio Mappings
@@ -491,6 +493,14 @@ class HybridTradingBot:
                 print(f"[Bot] [INFO] Canceling orphaned volume limit order #{o.ticket} on {symbol} (Target hit or session closed)...")
                 mt5.order_send(request)
 
+    def refresh_macro_sentiment(self):
+        """Runs the live geopolitical macro sentiment crawler to update current risk biases."""
+        try:
+            print("[Bot] [Senior Quant] Querying live macroeconomic and geopolitical risk feeds...")
+            self.macro_analyst.analyze()
+        except Exception as e:
+            print(f"[Bot] [Senior Quant] [ERROR] Geopolitical crawler failed: {e}")
+
     def refresh_timesfm_forecasts(self):
         """Run TimesFM inference for all watchlist symbols. Called once per 5-min cycle."""
         if self._tfm_forecaster is None:
@@ -835,6 +845,8 @@ def main():
         print("[Bot] [G4] To change mode: bot.risk_manager.set_mode('BLOCK') etc.")
         try:
             while True:
+                # Refresh macroeconomic & geopolitical risk indicators
+                bot.refresh_macro_sentiment()
                 # Refresh TimesFM forecasts at the start of every 5-min cycle
                 bot.refresh_timesfm_forecasts()
                 bot.evaluate_live_market()

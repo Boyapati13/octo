@@ -1,0 +1,23 @@
+{
+    "generated_at": "2026-05-27T08:29:34.999596+00:00",
+    "geopolitical_risk": "CRITICAL",
+    "geopolitics_raw_score": 13.8,
+    "fed_raw_score": -2.4,
+    "energy_raw_score": 6.5,
+    "macro_bias": {
+        "XAUUSD+": "BULLISH",
+        "NAS100": "BEARISH",
+        "EURUSD+": "BEARISH",
+        "GBPUSD+": "BEARISH"
+    },
+    "recent_headlines": [
+        "Daily: US-Iran escalation adds to geopolitical risks - UBS",
+        "How the Iran crisis is reshaping global politics and energy - Latest news from Azerbaijan",
+        "Capital flees Tehran stocks as geopolitical tensions deepen - ایران اینترنشنال",
+        "The Geopolitical Pivot: Why Gold is Reacting to Middle East Tensions - U.S. Gold Bureau",
+        "Trex Stock Gains on Ceasefire News and Market Stabilization | 2026 - News and Statistics - IndexBox",
+        "Trump tariff threats risk triggering ‘spiral of escalation’ in world economy, says IMF - The Guardian",
+        "What’s next for Iran? Five scenarios for geopolitics and oil - Rystad Energy",
+        "How the Iran War Is Destabilizing the Global Economy - Modern Diplomacy"
+    ]
+}
