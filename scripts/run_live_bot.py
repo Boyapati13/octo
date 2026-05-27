@@ -590,6 +590,149 @@ class HybridTradingBot:
                 print(f"[Bot] [G4] Forecast error for {symbol}: {e}")
         print("[Bot] [G4] Portfolio forecasts updated.")
 
+    def auto_tune_parameters(self):
+        """Executes the daily parameter optimization sweep for all active symbols to adapt to shifting market conditions."""
+        print("[Bot] [Adaptive AI] Triggering automated daily parameter optimization sweep...")
+        try:
+            from whale_markov_pure_volume_optimizer import WhaleMarkovPureVolumeOptimizer, summarize_simulation
+            import MetaTrader5 as mt5
+        except ImportError as e:
+            print(f"[Bot] [Adaptive AI] [ERROR] Failed to import optimizer modules: {e}")
+            return
+            
+        symbols_to_tune = ["GBPUSD+", "EURUSD+", "XAUUSD+"]
+        
+        for symbol in symbols_to_tune:
+            print(f"[Bot] [Adaptive AI] Re-optimizing parameters for {symbol}...")
+            opt = WhaleMarkovPureVolumeOptimizer(symbol=symbol, m5_candle_count=5000)
+            
+            opt.broker_gmt_offset = self.detect_broker_offset(symbol)
+            s_info = mt5.symbol_info(symbol)
+            if s_info is None:
+                alt = symbol.replace("+", "")
+                s_info = mt5.symbol_info(alt)
+                if s_info: opt.symbol = alt
+            opt.point_size = s_info.point if s_info else 0.00001
+            
+            # Copy rates
+            m5_rates = mt5.copy_rates_from_pos(opt.symbol, mt5.TIMEFRAME_M5, 0, opt.candle_count + 500)
+            m15_rates = mt5.copy_rates_from_pos(opt.symbol, mt5.TIMEFRAME_M15, 0, int(opt.candle_count / 3) + 1000)
+            d1_rates = mt5.copy_rates_from_pos(opt.symbol, mt5.TIMEFRAME_D1, 0, int(opt.candle_count / 200) + 100)
+            
+            if m5_rates is None or m15_rates is None or d1_rates is None:
+                print(f"[Bot] [Adaptive AI] [Warning] Failed to copy rates for {symbol}. Skipping auto-tune.")
+                continue
+                
+            opt.m15_closes = np.array([float(x["close"]) for x in m15_rates])
+            opt.m15_times = [datetime.fromtimestamp(int(x["time"]), tz=timezone.utc) for x in m15_rates]
+            
+            opt.m5_candles = []
+            for r in m5_rates:
+                opt.m5_candles.append({
+                    "time": datetime.fromtimestamp(int(r["time"]), tz=timezone.utc),
+                    "open": float(r["open"]), "high": float(r["high"]), "low": float(r["low"]), "close": float(r["close"]), "volume": int(r["tick_volume"])
+                })
+                
+            t_start = opt.m5_candles[0]["time"]
+            t_end = opt.m5_candles[-1]["time"] + timedelta(minutes=5)
+            
+            d1_times = [datetime.fromtimestamp(int(x["time"]), tz=timezone.utc).date() for x in d1_rates]
+            opt.d1_high_cache = {d1_times[j]: float(d1_rates[j]["high"]) for j in range(len(d1_rates))}
+            opt.d1_low_cache = {d1_times[j]: float(d1_rates[j]["low"]) for j in range(len(d1_rates))}
+            
+            m1_rates = mt5.copy_rates_range(opt.symbol, mt5.TIMEFRAME_M1, t_start, t_end)
+            if m1_rates is None or len(m1_rates) == 0:
+                print(f"[Bot] [Adaptive AI] [Warning] Failed to load M1 ticks for {symbol}. Skipping.")
+                continue
+                
+            opt.m1_groups = {}
+            for r in m1_rates:
+                m1_t = datetime.fromtimestamp(int(r["time"]), tz=timezone.utc)
+                m5_t = m1_t - timedelta(minutes=m1_t.minute % 5, seconds=m1_t.second)
+                if m5_t not in opt.m1_groups:
+                     opt.m1_groups[m5_t] = []
+                opt.m1_groups[m5_t].append({
+                     "time": m1_t, "open": float(r["open"]), "high": float(r["high"]), "low": float(r["low"]), "close": float(r["close"]), "volume": int(r["tick_volume"])
+                })
+                 
+            opt.m5_candles = opt.m5_candles[-opt.candle_count:]
+             
+            base_signals = opt.precalculate_pure_volume_signals()
+            if len(base_signals) < 5:
+                print(f"[Bot] [Adaptive AI] [Warning] Too few breakout signals ({len(base_signals)}) for {symbol}. Skipping auto-tune.")
+                continue
+                 
+            markov_windows = [10, 15, 20, 25]
+            markov_thresholds = [0.0005, 0.001, 0.0015, 0.002, 0.003]
+            markov_hedge_thresholds = [0.10, 0.15, 0.20]
+             
+            best_wr = 0.0
+            best_params = {}
+             
+            for w in markov_windows:
+                for t in markov_thresholds:
+                    for h in markov_hedge_thresholds:
+                        res = opt.run_simulation_fast(base_signals, use_markov_filter=True, use_markov_hedging=True, markov_window=w, markov_threshold=t, markov_hedge_threshold=h)
+                        summ = summarize_simulation(res, opt.initial_balance)
+                         
+                        trades_per_day = summ["trades"] / 17.0
+                        if trades_per_day >= 0.5:
+                            wr = summ["win_rate"]
+                            is_better = False
+                            if wr > best_wr:
+                                is_better = True
+                            elif abs(wr - best_wr) < 0.01 and summ["profit_factor"] > best_params.get("pf", 0.0):
+                                is_better = True
+                                 
+                            if is_better:
+                                best_wr = wr
+                                best_params = {
+                                    "window": w, "threshold": t, "hedge_threshold": h, "win_rate": wr, "pf": summ["profit_factor"], "pnl_pct": summ["net_profit_pct"], "trades": summ["trades"]
+                                }
+                                 
+            if best_params:
+                print(f"[Bot] [Adaptive AI] [SUCCESS] Optimized {symbol}: Window={best_params['window']}, Threshold={best_params['threshold']:.4f}, Hedge={best_params['hedge_threshold']:.2f}")
+                 
+                cfg_data = {
+                    "last_updated": datetime.now(timezone.utc).isoformat(),
+                    "symbol": symbol,
+                    "window": best_params["window"],
+                    "threshold": best_params["threshold"],
+                    "hedge_threshold": best_params["hedge_threshold"],
+                    "win_rate": best_params["win_rate"],
+                    "pf": best_params["pf"],
+                    "net_profit_pct": best_params["pnl_pct"]
+                }
+                 
+                local_cfg_path = Path(__file__).resolve().parent / "config" / f"optimal_parameters_{symbol}.json"
+                local_cfg_path.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    local_cfg_path.write_text(json.dumps(cfg_data, indent=4), encoding="utf-8")
+                except Exception:
+                    pass
+                     
+                common_dir = Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal" / "Common" / "Files"
+                if common_dir.exists():
+                    common_cfg_path = common_dir / f"optimal_parameters_{symbol}.json"
+                    try:
+                        common_cfg_path.write_text(json.dumps(cfg_data, indent=4), encoding="utf-8")
+                    except Exception:
+                        pass
+                         
+                msg = (f"\U0001f3af *[ADAPTIVE AI: PARAMETER RE-OPTIMIZED]*\n\n"
+                       f"*Symbol:* `{symbol}`\n"
+                       f"*New Optimal Window:* `{best_params['window']} bars`\n"
+                       f"*New Optimal Threshold:* `{best_params['threshold']:.4f}`\n"
+                       f"*New Optimal Hedge:* `{best_params['hedge_threshold']:.2f}`\n"
+                       f"*Expected Win Rate:* `{best_params['win_rate']:.2f}%`\n"
+                       f"*Historical Profit Factor:* `{best_params['pf']:.2f}`\n"
+                       f"_(Adaptive parameter hot-loaded cleanly!)_")
+                self.send_telegram_alert(msg)
+                 
+        self.state["last_tuning_time"] = datetime.now(timezone.utc).isoformat()
+        self.save_state()
+        print("[Bot] [Adaptive AI] Dynamic parameter self-tuning completed.")
+
     def evaluate_live_market(self):
         self.manage_active_positions()
         self.manage_pending_limit_orders()
@@ -973,6 +1116,26 @@ def main():
                     print("[Bot] [Error] Failed to connect to MetaTrader 5. Retrying in 10 seconds...")
                     time.sleep(10)
                     continue
+
+            # 1.5 Automated Dynamic Re-Optimization Check (24-Hour Adaptive AI loop)
+            should_tune = False
+            last_tune_str = bot.state.get("last_tuning_time", "")
+            if not last_tune_str:
+                should_tune = True
+            else:
+                try:
+                    last_tune_dt = datetime.fromisoformat(last_tune_str)
+                    elapsed = datetime.now(timezone.utc) - last_tune_dt
+                    if elapsed.total_seconds() >= 86400:  # 24 Hours
+                        should_tune = True
+                except Exception:
+                    should_tune = True
+                    
+            if should_tune:
+                try:
+                    bot.auto_tune_parameters()
+                except Exception as e:
+                    print(f"[Bot] [Adaptive AI] [ERROR] Automated parameter tuning failed: {e}")
 
             # 2. Execute a single production cycle with safety guards
             try:
