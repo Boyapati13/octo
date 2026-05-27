@@ -353,11 +353,24 @@ OCTO is natively integrated with institutional-grade trading setups, making it a
 - **High-Fidelity Telegram Alerts**: Automatically enhances all trade execution, pending order, and warning alerts with dynamic G4 emojis and confidence scores.
 
 ### 🌐 Graphify Workspace Knowledge Graph & Agent Tools
-- **Deep AST Extraction**: Maps the entire codebase recursively into a navigable knowledge graph consisting of **175,715 nodes** and **264,681 edges** across **11,566 communities**.
-- **Developer Agent Tools**: Automatically registers 3 premium tools inside the OCTO-Pro FastMCP server, letting sub-agents view, control, and update parameters:
-  - `octo_timesfm_forecast` — Pulls cached or fresh AI price predictions.
-  - `octo_risk_manager_status` — Reports current active G4 configuration and watchlist details.
-  - `octo_risk_manager_set_config` — Programmatically overrides gate modes and thresholds.
+
+OCTO-Pro integrates recursively with **Graphify**—an advanced static-analysis AST parser that turns the entire repository workspace into an interactive, navigable knowledge graph (consisting of **175,715 nodes**, **264,681 edges**, and **11,566 communities**). 
+
+The generated graph and markdown report are located in [graphify-out/](file:///c:/Users/Tenders/octo/graphify-out/) at the workspace root.
+
+### 🛠️ Graphify CLI Commands
+Developers and sub-agents can query the knowledge graph directly via CLI:
+- **Query Graph**: `graphify query "How does G4 risk gating evaluate trade lot sizing?"` (resolves structural & design questions using a compact local subgraph).
+- **Trace Path**: `graphify path "run_live_bot" "macro_sentiment_analyst"` (traces dependencies and interaction flows).
+- **Explain Concept**: `graphify explain "TimesFM Zero-Shot Forecaster"` (gets a high-level conceptual explanation).
+- **Update Index**: `graphify update .` (synchronizes the index with new changes).
+
+### 🤖 Developer Agent Tools (FastMCP)
+OCTO-Pro registers premium tools inside the FastMCP server, allowing sub-agents to interface with active systems:
+- `octo_timesfm_forecast` — Pulls cached or fresh AI price predictions.
+- `octo_risk_manager_status` — Reports current active G4 configuration and watchlist details.
+- `octo_risk_manager_set_config` — Programmatically overrides gate modes and thresholds.
+
 
 ---
 
