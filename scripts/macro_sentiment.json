@@ -1,7 +1,7 @@
 {
-    "generated_at": "2026-05-29T09:24:14.904493+00:00",
+    "generated_at": "2026-05-29T09:32:40.390191+00:00",
     "geopolitical_risk": "CRITICAL",
-    "geopolitics_raw_score": 15.0,
+    "geopolitics_raw_score": 15.3,
     "fed_raw_score": -2.7,
     "energy_raw_score": 9.0,
     "macro_bias": {
@@ -11,13 +11,13 @@
         "GBPUSD+": "BEARISH"
     },
     "recent_headlines": [
+        "Geopolitical Risk Radar (GERI) — Indicator by kooshadab - TradingView",
         "Daily: US-Iran escalation adds to geopolitical risks - UBS",
-        "Strait of Hormuz Shipping Disruption’s Impact on Brent Oil Prices - Discovery Alert",
         "The Geopolitical Pivot: Why Gold is Reacting to Middle East Tensions - U.S. Gold Bureau",
         "Capital flees Tehran stocks as geopolitical tensions deepen - ایران اینترنشنال",
         "Trump tariff threats risk triggering ‘spiral of escalation’ in world economy, says IMF - The Guardian",
         "How the Iran War Is Destabilizing the Global Economy - Modern Diplomacy",
         "What the Iran War Means for Investors - finews.asia",
-        "Iran War-Led Market Volatility: Top 3 Sectors and Stocks for 2026 - The Globe and Mail"
+        "U.S. stock futures rise on hopes of de-escalation in Iran conflict - The American Bazaar"
     ]
 }

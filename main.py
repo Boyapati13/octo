@@ -891,6 +891,44 @@ class OctoLive:
         except Exception:
             pass
 
+        # ── Live Volume Profile & MT5 snapshot — injected from background VP service ──
+        try:
+            import json as _j
+            from pathlib import Path as _P
+            _vp_path = _P(__file__).resolve().parent / "scripts" / "volume_profile_live.json"
+            if _vp_path.exists():
+                _vp = _j.loads(_vp_path.read_text(encoding="utf-8"))
+                _syms = _vp.get("symbols", {})
+                _gen  = _vp.get("generated_at", "")
+                if _syms:
+                    vp_lines = [
+                        f"[LIVE VOLUME PROFILE & WHALE ENGINE DATA — {_gen}]",
+                        "Computed from M15 MT5 data. Use these EXACT numbers to answer trading questions. Never say you cannot access live data.",
+                        ""
+                    ]
+                    for _sk, _sv in _syms.items():
+                        if "error" in _sv:
+                            continue
+                        _w  = _sv.get("whale", {})
+                        _v  = _sv.get("volume", {})
+                        _fvg = _sv.get("fvg_recent", [])
+                        fvg_str = ""
+                        if _fvg:
+                            lf = _fvg[-1]
+                            fvg_str = f" | FVG({lf['type']}): {lf['bottom']}–{lf['top']}"
+                        vp_lines.append(
+                            f"[{_sk}] Price={_sv.get('current_price')} "
+                            f"POC={_sv.get('poc')} VAH={_sv.get('vah')} VAL={_sv.get('val')} "
+                            f"Bias={_sv.get('bias','')} "
+                            f"PDH={_sv.get('pdh')} PDL={_sv.get('pdl')} "
+                            f"NearPDH={_sv.get('near_pdh')} NearPDL={_sv.get('near_pdl')} "
+                            f"WhaleAlpha={_w.get('dynamic_alpha')} VR={_w.get('volatility_ratio_vr')} State={_w.get('state','')}"
+                            f"{fvg_str}"
+                        )
+                    parts.append("\n".join(vp_lines) + "\n")
+        except Exception:
+            pass
+
         parts.append(sys_prompt)
 
         return types.LiveConnectConfig(

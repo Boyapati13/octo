@@ -18,15 +18,5 @@
         "partial_taken": false,
         "sl_to_50pct": false,
         "sl_to_be": false
-    },
-    "198206388": {
-        "symbol": "XAUUSD+",
-        "entry_price": 4528.59,
-        "initial_sl": 0.0,
-        "initial_tp": 0.0,
-        "initial_lot": 0.01,
-        "partial_taken": false,
-        "sl_to_50pct": false,
-        "sl_to_be": false
     }
 }

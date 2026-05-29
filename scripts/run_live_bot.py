@@ -327,94 +327,122 @@ class HybridTradingBot:
             print(f"[Bot] [Telegram] [ERROR] Failed to send alert: {e}")
 
     def send_whatsapp_alert(self, message: str):
-        """Sends a real-time trading alert directly to the user's WhatsApp via the local bridge."""
+        """Sends a real-time trading alert to the WhatsApp channel via the local bridge.
+        Retries JID resolution on every call so a bridge-offline startup never permanently kills alerts."""
+        import urllib.request
+        import json as _json
+
         if not self.wa_enabled:
             return
-            
-        # Dynamically resolve alphabetical allowed_users or channel invite codes to JID if not yet set
+
+        # ── Step 1: Verify bridge is alive ────────────────────────────────────
+        health_url = f"http://127.0.0.1:{self.wa_port}/health"
+        try:
+            req = urllib.request.Request(health_url, method="GET")
+            with urllib.request.urlopen(req, timeout=3.0) as resp:
+                h = _json.loads(resp.read().decode("utf-8"))
+                if h.get("status") != "connected":
+                    print(f"[Bot] [WhatsApp] [WARN] Bridge alive but status='{h.get('status')}' — skipping alert.")
+                    return
+        except Exception as e:
+            print(f"[Bot] [WhatsApp] [ERROR] Bridge not reachable at port {self.wa_port}: {e}")
+            return
+
+        # ── Step 2: Resolve channel/chat JID (retry every time until success) ──
         if not self.wa_chat_id and self.wa_allowed_users:
             first_user = self.wa_allowed_users.split(",")[0].strip()
-            
-            # Check if it is a WhatsApp Channel / Newsletter link or code
-            is_newsletter = False
+            is_newsletter = "whatsapp.com/channel/" in first_user or "0029Vb" in first_user
             invite_code = None
-            if "whatsapp.com/channel/" in first_user or "0029Vb" in first_user:
-                is_newsletter = True
+            if is_newsletter:
                 invite_code = first_user.split("channel/")[-1].strip() if "channel/" in first_user else first_user
-                
+
             if is_newsletter and invite_code:
                 resolved_jid = self.resolve_whatsapp_newsletter(invite_code)
                 if resolved_jid:
                     self.wa_chat_id = resolved_jid
-                    print(f"[Bot] [WhatsApp] Dynamically resolved Channel invite '{invite_code}' to JID: '{self.wa_chat_id}'")
+                    print(f"[Bot] [WhatsApp] ✅ Resolved Channel '{invite_code}' → JID: '{self.wa_chat_id}'")
+                else:
+                    print(f"[Bot] [WhatsApp] [ERROR] Could not resolve Channel invite '{invite_code}'. Bridge connected but newsletterMetadata failed. Check channel code.")
+                    return
             elif any(c.isalpha() for c in first_user):
                 resolved_jid = self.resolve_whatsapp_chat(first_user)
                 if resolved_jid:
                     self.wa_chat_id = resolved_jid
-                    print(f"[Bot] [WhatsApp] Dynamically resolved chat '{first_user}' to JID: '{self.wa_chat_id}'")
+                    print(f"[Bot] [WhatsApp] ✅ Resolved chat '{first_user}' → JID: '{self.wa_chat_id}'")
+                else:
+                    print(f"[Bot] [WhatsApp] [ERROR] Could not resolve chat name '{first_user}'. Check spelling.")
+                    return
             else:
                 clean_num = "".join(c for c in first_user if c.isdigit())
                 if clean_num:
                     self.wa_chat_id = f"{clean_num}@s.whatsapp.net"
-                    
+                    print(f"[Bot] [WhatsApp] ✅ Using direct number JID: '{self.wa_chat_id}'")
+
         if not self.wa_chat_id:
+            print("[Bot] [WhatsApp] [ERROR] wa_chat_id is not set and could not be resolved. Alert dropped.")
             return
-            
+
+        # ── Step 3: Send the alert ─────────────────────────────────────────────
         url = f"http://127.0.0.1:{self.wa_port}/send"
-        payload = {
-            "chatId": self.wa_chat_id,
-            "message": message
-        }
+        payload = {"chatId": self.wa_chat_id, "message": message}
         try:
-            import urllib.request
-            import json
             req = urllib.request.Request(
                 url,
-                data=json.dumps(payload).encode("utf-8"),
+                data=_json.dumps(payload).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
                 method="POST"
             )
-            with urllib.request.urlopen(req, timeout=5.0) as response:
-                pass
-            print(f"[Bot] [WhatsApp] Alert successfully sent: {message[:60]}...")
+            with urllib.request.urlopen(req, timeout=8.0) as response:
+                resp_body = _json.loads(response.read().decode("utf-8"))
+                if resp_body.get("success"):
+                    print(f"[Bot] [WhatsApp] ✅ Alert sent to '{self.wa_chat_id}': {message[:80]}...")
+                else:
+                    print(f"[Bot] [WhatsApp] [ERROR] Bridge returned failure: {resp_body}")
+                    # Reset JID so next call retries resolution in case of stale JID
+                    self.wa_chat_id = None
         except Exception as e:
-            print(f"[Bot] [WhatsApp] [ERROR] Failed to send alert: {e}")
+            print(f"[Bot] [WhatsApp] [ERROR] HTTP POST to bridge failed: {e}")
+            # Reset JID so next call retries resolution
+            self.wa_chat_id = None
 
     def resolve_whatsapp_newsletter(self, code: str) -> Optional[str]:
         """Queries the local WhatsApp bridge to resolve a newsletter/channel invite code to its JID."""
         import urllib.request
-        import json
-        
+        import json as _json
         url = f"http://127.0.0.1:{self.wa_port}/resolve-newsletter/{code}"
         try:
             req = urllib.request.Request(url, method="GET")
-            with urllib.request.urlopen(req, timeout=10.0) as response:
-                res_data = json.loads(response.read().decode("utf-8"))
+            with urllib.request.urlopen(req, timeout=15.0) as response:
+                res_data = _json.loads(response.read().decode("utf-8"))
                 if res_data.get("success"):
-                    return res_data.get("metadata", {}).get("id")
+                    jid = res_data.get("metadata", {}).get("id")
+                    if jid:
+                        return jid
+                    print(f"[Bot] [WhatsApp] [WARN] resolve-newsletter succeeded but 'id' missing in metadata: {res_data.get('metadata')}")
+                else:
+                    print(f"[Bot] [WhatsApp] [ERROR] resolve-newsletter returned: {res_data}")
         except Exception as e:
-            # Safe silent fallback if bridge is offline/warmup
-            pass
+            print(f"[Bot] [WhatsApp] [ERROR] resolve-newsletter call failed: {e}")
         return None
 
     def resolve_whatsapp_chat(self, name: str) -> Optional[str]:
         """Queries the local WhatsApp bridge to resolve a chat/group name to its JID."""
         import urllib.request
         import urllib.parse
-        import json
-        
+        import json as _json
         encoded_name = urllib.parse.quote(name)
         url = f"http://127.0.0.1:{self.wa_port}/resolve-chat/{encoded_name}"
         try:
             req = urllib.request.Request(url, method="GET")
-            with urllib.request.urlopen(req, timeout=5.0) as response:
-                res_data = json.loads(response.read().decode("utf-8"))
+            with urllib.request.urlopen(req, timeout=8.0) as response:
+                res_data = _json.loads(response.read().decode("utf-8"))
                 if res_data.get("success"):
                     return res_data.get("jid")
+                print(f"[Bot] [WhatsApp] [ERROR] resolve-chat returned: {res_data}")
         except Exception as e:
-            # Safe silent fallback if bridge is offline/warmup
-            pass
+            print(f"[Bot] [WhatsApp] [ERROR] resolve-chat call failed: {e}")
         return None
+
 
     def _poll_whatsapp_commands(self):
         """Polls the local WhatsApp bridge for incoming commands from the authorized user or channel."""
