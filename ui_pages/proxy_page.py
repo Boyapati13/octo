@@ -106,6 +106,13 @@ class ProxyPage(OctoPage):
             from memory.config_manager import save_proxy_keys, sync_proxy_env
             save_proxy_keys(keys)
             sync_proxy_env()
+            
+            # Hot-reload proxy settings if in-process
+            try:
+                from proxy.config_fcc.settings import get_settings
+                get_settings.cache_clear()
+            except ImportError:
+                pass
         except Exception as e:
             print(f"[OCTO] Proxy save error: {e}")
             raise
@@ -118,7 +125,10 @@ class ProxyPage(OctoPage):
                 data = _load_json(CONFIG_FILE, {})
                 data["ollama_base_url"] = url
                 if self._ollama_model_cb and self._ollama_model_cb.currentText():
-                    data["ollama_model"] = self._ollama_model_cb.currentText()
+                    txt = self._ollama_model_cb.currentText()
+                    if "  [" in txt:
+                        txt = txt.split("  [")[0]
+                    data["ollama_model"] = txt
                 _save_json(CONFIG_FILE, data)
             except Exception as e:
                 print(f"[OCTO] Ollama cfg save: {e}")
@@ -561,7 +571,7 @@ class ProxyPage(OctoPage):
 
         lay.addWidget(self.sep())
         save_row = QHBoxLayout()
-        save_b = self.btn("▸  SAVE & SYNC ALL SETTINGS", color=PRI, height=34)
+        save_b = self.btn("▸  SAVE && SYNC ALL SETTINGS", color=PRI, height=34)
         save_b.clicked.connect(self._do_save_all)
         save_row.addStretch(); save_row.addWidget(save_b)
         lay.addLayout(save_row)

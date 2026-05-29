@@ -376,7 +376,18 @@ OCTO is natively integrated with institutional-grade trading setups, functioning
 ### 🧠 Google TimesFM 2.5 Zero-Shot Forecaster
 - **Zero-Shot Engine**: Natively runs Google's advanced `timesfm-2.5-200m-pytorch` model on a 5-minute background cycle, forecasting 8–12 bars into the future with dynamic 80% prediction intervals.
 - **Unified IPC**: Automatically persists per-symbol cached directional biases (`BULL` / `BEAR` / `NEUTRAL`) and confidence metrics to both JSON and MQL5-compatible `timesfm_signal.json` files for instant read-out.
-- **Voice-Activated Insights**: Users can ask OCTO directly: *"What does the AI forecast for Gold?"* or *"Is the AI bullish on EURUSD?"* to receive spoken summaries with zero inference delay.
+
+### 📡 WhatsApp Interactive Console & Personal Assistant
+OCTO is natively integrated with a high-fidelity WhatsApp communication loop (`C:\Users\Tenders\octo\octo\scripts\run_live_bot.py`), converting your private chat or Broadcast Channel into a secure, mobile-operable system interface:
+- **Dynamic Broadcast Channel Parsing**: Startup sequences parse channel URLs (e.g. `https://whatsapp.com/channel/0029Vb8a3Zs9mrGeyYMTNx42`), querying the Express bridge’s native `/resolve-newsletter/:code` metadata resolver to obtain the correct newsletter JID (`120363427287192115@newsletter`).
+- **Interactive Trading Console**: Supports market control commands sent via chat:
+  - `buy <symbol> [lots]` / `sell <symbol> [lots]` — Executes market orders on MT5 via G4 risk checks.
+  - `close <symbol>` / `close all` — Closes active positions.
+  - `status` / `balance` / `positions` — Checks live MT5 balance, equity, and open tickets with floating PnL.
+  - `sentiment` / `news` — Returns Central Bank warning events and geopolitical risk threat indexes.
+  - `help` / `menu` — Displays the mobile operations manual.
+- **LangGraph Assistant Routing**: Any non-trading command or general query is automatically forwarded in real-time to the monolithic personal assistant agent (`deerflow_bridge.chat()`).
+- **Persistent Conversation Memory**: The bot automatically maps the sender's WhatsApp JID as the LangGraph `session_id`, enabling persistent multi-turn conversations and user profiles directly over mobile chat.
 
 ### 🌐 Graphify Workspace Knowledge Graph & Agent Tools
 OCTO-Pro integrates recursively with **Graphify**—an advanced static-analysis AST parser that turns the entire repository workspace into an interactive, navigable knowledge graph (consisting of **176,143 nodes**, **265,284 edges**, and **11,511 communities**).

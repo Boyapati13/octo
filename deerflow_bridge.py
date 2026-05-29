@@ -150,7 +150,7 @@ def wait_until_ready(timeout: float = 30.0) -> bool:
 def new_thread() -> str:
     try:
         # POST /api/threads → creates a new thread, returns {thread_id: ...}
-        r = _http_post("/threads", {})
+        r = _http_post("/threads", {}, timeout=CONNECT_TIMEOUT)
         return r.get("thread_id") or r.get("id") or str(uuid.uuid4())
     except Exception:
         return str(uuid.uuid4())
@@ -161,6 +161,36 @@ def get_or_create_thread(session_id: str = "default") -> str:
     return _session_thread_id[session_id]
 
 
+def _read_ui_tools() -> set[str]:
+    cfg_path = ROOT.parent / "config" / "tools_config.json"
+    if not cfg_path.exists():
+        return {"terminal", "file", "code_execution", "memory", "todo", "skills", "delegation", "cronjob", "web", "browser", "deerflow", "deep_research"}
+    try:
+        data = json.loads(cfg_path.read_text(encoding="utf-8"))
+        return set(data.get("enabled", []))
+    except Exception:
+        return {"terminal", "file", "code_execution", "memory", "todo", "skills", "delegation", "cronjob", "web", "browser", "deerflow", "deep_research"}
+
+def _get_mapped_tools_and_skills() -> tuple[set[str], set[str], bool]:
+    ui_tools = _read_ui_tools()
+    allowed_tools = {"present_file", "ask_clarification", "task", "tool_search", "view_image"}
+    allowed_skills = set()
+    
+    if "web" in ui_tools: allowed_tools.update({"web_search", "web_fetch"})
+    if "terminal" in ui_tools: allowed_tools.update({"bash", "bash_tool"})
+    if "file" in ui_tools: allowed_tools.update({"read_file", "write_file", "list_files", "file_search"})
+    if "code_execution" in ui_tools: allowed_tools.update({"python_repl", "javascript_repl"})
+    
+    if "image_gen" in ui_tools:
+        allowed_skills.add("image_generation")
+        allowed_skills.add("fal-ai-media")
+    if "homeassistant" in ui_tools:
+        allowed_skills.add("home-assistant-integration")
+    if "deep_research" in ui_tools:
+        allowed_skills.add("deep-research")
+        
+    return allowed_tools, allowed_skills, "delegation" in ui_tools
+
 # ── Chat ──────────────────────────────────────────────────────────────────────
 
 def chat(message: str, session_id: str = "default", model: str | None = None,
@@ -168,7 +198,8 @@ def chat(message: str, session_id: str = "default", model: str | None = None,
     # 1. Embedded
     client = _get_embedded_client()
     if client:
-        return client.chat(message, model=model, thinking=thinking, subagents=subagents)
+        t, s, d = _get_mapped_tools_and_skills()
+        return client.chat(message, model=model, thinking=thinking, subagents=(subagents and d), available_tools=t, available_skills=s)
     return "DeerFlow unavailable — unable to load embedded DeerFlowClient."
 
 
@@ -180,10 +211,11 @@ def deep_research(topic: str, session_id: str = "default",
     client = _get_embedded_client()
     if client:
         try:
+            t, s, d = _get_mapped_tools_and_skills()
             thread_id = get_or_create_thread(session_id)
             chunks: dict[str, list[str]] = {}
             last_id: str = ""
-            for event in client.stream(topic, thread_id=thread_id, subagent_enabled=True):
+            for event in client.stream(topic, thread_id=thread_id, subagent_enabled=d, available_tools=t, available_skills=s):
                 if event.type == "messages-tuple" and event.data.get("type") == "ai":
                     msg_id = event.data.get("id") or ""
                     delta = event.data.get("content", "")

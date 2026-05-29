@@ -46,6 +46,7 @@ def get_available_tools(
     include_mcp: bool = True,
     model_name: str | None = None,
     subagent_enabled: bool = False,
+    allowed_tools: set[str] | None = None,
     *,
     app_config: AppConfig | None = None,
 ) -> list[BaseTool]:
@@ -210,8 +211,9 @@ def get_available_tools(
     unique_tools: list[BaseTool] = []
     for t in all_tools:
         if t.name not in seen_names:
-            unique_tools.append(t)
-            seen_names.add(t.name)
+            if allowed_tools is None or t.name in allowed_tools:
+                unique_tools.append(t)
+                seen_names.add(t.name)
         else:
             logger.warning(
                 "Duplicate tool name %r detected and skipped — check your config.yaml and MCP server registrations (issue #1803).",

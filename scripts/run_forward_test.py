@@ -94,7 +94,7 @@ def main():
     forward_results.sort(key=lambda x: x["pnl_pct"], reverse=True)
     
     # Generate and save forward test report
-    report_dir = r"C:\Users\Tenders\.gemini\antigravity\brain\b77f5bb2-8909-4c2c-bf48-261d57d15cff"
+    report_dir = r"C:\Users\Tenders\.gemini\antigravity\brain\ed5ad4ad-7f49-4552-8e86-e68f613719f2"
     report_path = os.path.join(report_dir, "forward_test_report.md")
     
     with open(report_path, "w", encoding="utf-8") as f:

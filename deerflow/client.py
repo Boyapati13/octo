@@ -201,6 +201,8 @@ class DeerFlowClient:
             "thinking_enabled": overrides.get("thinking_enabled", self._thinking_enabled),
             "is_plan_mode": overrides.get("plan_mode", self._plan_mode),
             "subagent_enabled": overrides.get("subagent_enabled", self._subagent_enabled),
+            "available_tools": overrides.get("available_tools"),
+            "available_skills": overrides.get("available_skills", self._available_skills),
         }
         return RunnableConfig(
             configurable=configurable,
@@ -216,7 +218,8 @@ class DeerFlowClient:
             cfg.get("is_plan_mode"),
             cfg.get("subagent_enabled"),
             self._agent_name,
-            frozenset(self._available_skills) if self._available_skills is not None else None,
+            frozenset(cfg.get("available_tools", [])) if cfg.get("available_tools") is not None else None,
+            frozenset(cfg.get("available_skills", self._available_skills)) if cfg.get("available_skills", self._available_skills) is not None else None,
         )
 
         if self._agent is not None and self._agent_config_key == key:
@@ -226,16 +229,18 @@ class DeerFlowClient:
         model_name = cfg.get("model_name")
         subagent_enabled = cfg.get("subagent_enabled", False)
         max_concurrent_subagents = cfg.get("max_concurrent_subagents", 3)
+        available_tools = cfg.get("available_tools")
+        available_skills = cfg.get("available_skills", self._available_skills)
 
         kwargs: dict[str, Any] = {
             "model": create_chat_model(name=model_name, thinking_enabled=thinking_enabled),
-            "tools": self._get_tools(model_name=model_name, subagent_enabled=subagent_enabled),
+            "tools": self._get_tools(model_name=model_name, subagent_enabled=subagent_enabled, allowed_tools=available_tools),
             "middleware": _build_middlewares(config, model_name=model_name, agent_name=self._agent_name, custom_middlewares=self._middlewares),
             "system_prompt": apply_prompt_template(
                 subagent_enabled=subagent_enabled,
                 max_concurrent_subagents=max_concurrent_subagents,
                 agent_name=self._agent_name,
-                available_skills=self._available_skills,
+                available_skills=available_skills,
             ),
             "state_schema": ThreadState,
         }
@@ -252,11 +257,11 @@ class DeerFlowClient:
         logger.info("Agent created: agent_name=%s, model=%s, thinking=%s", self._agent_name, model_name, thinking_enabled)
 
     @staticmethod
-    def _get_tools(*, model_name: str | None, subagent_enabled: bool):
+    def _get_tools(*, model_name: str | None, subagent_enabled: bool, allowed_tools: set[str] | None = None):
         """Lazy import to avoid circular dependency at module level."""
         from deerflow.tools import get_available_tools
 
-        return get_available_tools(model_name=model_name, subagent_enabled=subagent_enabled)
+        return get_available_tools(model_name=model_name, subagent_enabled=subagent_enabled, allowed_tools=allowed_tools)
 
     @staticmethod
     def _serialize_tool_calls(tool_calls) -> list[dict]:

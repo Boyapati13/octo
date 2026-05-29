@@ -7,5 +7,16 @@
         "initial_lot": 0.01,
         "partial_taken": false,
         "sl_to_be": false
+    },
+    "last_tuning_time": "2026-05-28T19:35:14.695730+00:00",
+    "197767298": {
+        "symbol": "NAS100",
+        "entry_price": 30231.41,
+        "initial_sl": 30582.66,
+        "initial_tp": 30071.73,
+        "initial_lot": 0.1,
+        "partial_taken": false,
+        "sl_to_50pct": false,
+        "sl_to_be": false
     }
 }

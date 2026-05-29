@@ -1614,6 +1614,25 @@ def main():
             ui.wait_for_api_key()
             ui.write_log("SYS: Starting voice engine...")
             print("[OCTO] wait_for_api_key done — launching OctoLive")
+            
+            # --- Inject Background Trading Engines ---
+            ui.write_log("SYS: Booting Trading & Sentiment Engines natively...")
+            import subprocess, atexit, os
+            env = os.environ.copy()
+            env["PYTHONUTF8"] = "1"
+            env["PYTHONPATH"] = str(BASE_DIR)
+            scripts_dir = BASE_DIR / "scripts"
+            
+            flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            try:
+                p1 = subprocess.Popen([sys.executable, str(scripts_dir / "macro_sentiment_analyst.py")], env=env, cwd=str(BASE_DIR), creationflags=flags)
+                p2 = subprocess.Popen([sys.executable, str(scripts_dir / "run_live_bot.py")], env=env, cwd=str(BASE_DIR), creationflags=flags)
+                atexit.register(lambda: (p1.terminate(), p2.terminate()))
+                ui.write_log("SYS: Engines linked and active in background.")
+            except Exception as e:
+                ui.write_log(f"ERR: Failed to start engines - {e}")
+            # -----------------------------------------
+
             OCTO = OctoLive(ui)
             asyncio.run(OCTO.run())
         except BaseException as e:

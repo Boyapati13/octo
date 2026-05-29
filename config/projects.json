@@ -9,6 +9,12 @@
     "name": "octo",
     "path": "C:/Users/Tenders/octo",
     "desc": "",
+    "active": false
+  },
+  {
+    "name": "test",
+    "path": "C:/Users/Tenders/Downloads",
+    "desc": "",
     "active": true
   }
 ]

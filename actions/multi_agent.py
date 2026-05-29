@@ -7,7 +7,7 @@ from typing import Callable, Optional
 # Instead of re-inventing the wheel and hitting `DeerFlowClient` path depth errors,
 # we use the robust HTTP endpoints provided in deerflow_bridge if the gateway is running.
 # If the gateway is not running, we try the embedded client directly, but proxy it securely.
-from deerflow_bridge import is_http_running, _http_stream, get_or_create_thread, _get_embedded_client
+from deerflow_bridge import is_http_running, _http_stream, get_or_create_thread, _get_embedded_client, _get_mapped_tools_and_skills
 
 log = logging.getLogger(__name__)
 
@@ -46,45 +46,7 @@ def multi_agent_loop(
     if on_progress:
         on_progress("Initializing multi-agent swarm...\n")
 
-    # PREFERRED: HTTP Gateway (Runs in isolated Sandbox modes, prevents path depth errors)
-    if is_http_running():
-        try:
-            if on_progress:
-                on_progress("[Using Gateway API for LangGraph orchestration]\n")
-
-            body = {
-                "message": context_task,
-                "model": model,
-                "stream": True,
-                "subagents": True, # enable full swarm capabilities
-                "thread_id": thread_id
-            }
-
-            chunks = []
-            for chunk in _http_stream("/chat", body):
-                # The stream from gateway yields server-sent events
-                if chunk.startswith("data: "):
-                    data_str = chunk[6:]
-                    if data_str == "[DONE]":
-                        break
-                    try:
-                        data = json.loads(data_str)
-                        # Depending on the event type, extract delta
-                        if data.get("type") == "ai" and "content" in data:
-                            delta = data["content"]
-                            chunks.append(delta)
-                            if on_progress:
-                                on_progress(delta)
-                    except json.JSONDecodeError:
-                        pass
-
-            final_output = "".join(chunks)
-            return final_output if final_output else "Task completed (no output)."
-
-        except Exception as e:
-            err_msg = f"Multi-agent HTTP execution failed: {e}"
-            log.error(err_msg)
-            return err_msg
+    t, s, d = _get_mapped_tools_and_skills()
 
     # If this is an Ollama model, we inject it into DeerFlow's config so it doesn't fail validation
     _injected_config = False
@@ -117,6 +79,46 @@ def multi_agent_loop(
     except Exception as e:
         log.warning(f"Failed to inject dynamic ollama model config: {e}")
 
+    if is_http_running():
+        try:
+            if on_progress:
+                on_progress("[Using Gateway LangGraph Orchestration]\n")
+                
+            payload = {
+                "message": context_task,
+                "thread_id": thread_id,
+                "subagent_enabled": d,
+                "available_tools": list(t),
+                "available_skills": list(s)
+            }
+            if model != "auto":
+                payload["model"] = model
+                
+            chunks_dict = {}
+            last_id = ""
+            for raw_chunk in _http_stream("/chat", payload, timeout=120):
+                # parse SSE lines
+                if raw_chunk.startswith("data: "):
+                    try:
+                        data = json.loads(raw_chunk[6:])
+                        if data.get("type") == "ai":
+                            msg_id = data.get("id") or ""
+                            delta = data.get("content", "")
+                            if delta:
+                                chunks_dict.setdefault(msg_id, []).append(delta)
+                                last_id = msg_id
+                                if on_progress:
+                                    on_progress(delta)
+                    except json.JSONDecodeError:
+                        pass
+            
+            final_output = "".join(chunks_dict.get(last_id, ()))
+            return final_output if final_output else "Task completed (no output)."
+        except Exception as e:
+            log.error(f"Multi-agent HTTP execution failed: {e}")
+            if on_progress:
+                on_progress(f"\n[Gateway Error] {e}. Falling back to embedded...\n")
+
     # FALLBACK: Embedded client
     client = _get_embedded_client()
     if not client:
@@ -135,7 +137,7 @@ def multi_agent_loop(
 
             chunks_dict = {}
             last_id = ""
-            for event in client.stream(context_task, thread_id=thread_id, subagent_enabled=True):
+            for event in client.stream(context_task, thread_id=thread_id, subagent_enabled=d, available_tools=t, available_skills=s):
                 if event.type == "messages-tuple" and event.data.get("type") == "ai":
                     msg_id = event.data.get("id") or ""
                     delta = event.data.get("content", "")
@@ -162,7 +164,12 @@ def multi_agent_loop(
                     pass
             err_msg = f"Multi-agent embedded execution failed: {e}"
             log.error(err_msg)
+            if on_progress:
+                on_progress(f"\n[Error] {err_msg}\n")
             return err_msg
 
     # TOTAL FALLBACK
-    return "Multi-agent framework (DeerFlow Gateway/Embedded) is completely unavailable. Please start the gateway."
+    err_msg = "Multi-agent framework (DeerFlow Gateway/Embedded) is completely unavailable. Please start the gateway."
+    if on_progress:
+        on_progress(f"\n[Error] {err_msg}\n")
+    return err_msg

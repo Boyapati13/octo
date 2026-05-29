@@ -2,7 +2,12 @@
   "identity": {},
   "preferences": {},
   "projects": {},
-  "relationships": {},
+  "relationships": {
+    "siva_phone": {
+      "value": "+39 338 159 9401",
+      "updated": "2026-05-27"
+    }
+  },
   "wishes": {},
   "notes": {}
 }

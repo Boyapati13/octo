@@ -342,64 +342,489 @@ class Mt5Page(OctoPage):
         
         self._lay.addWidget(self._offline_w)
 
+class Mt5Page(OctoPage):
+    _status_sig = pyqtSignal(dict)
+    _suggestion_sig = pyqtSignal(dict)
+    _timesfm_sig = pyqtSignal(dict)
+    _news_sig = pyqtSignal(dict)
+    _ollama_sig = pyqtSignal(dict)
+    _auto_scan_sig = pyqtSignal(dict)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        from memory.config_manager import load_watchlist
+        self._watchlist_symbols = load_watchlist()
+        self._current_news = []
+        self._current_calendar = []
+        self._ollama_generating = False
+        self._status_sig.connect(self._on_status_updated)
+        self._suggestion_sig.connect(self._on_suggestion_received)
+        self._timesfm_sig.connect(self._on_timesfm_received)
+        self._news_sig.connect(self._on_news_received)
+        self._ollama_sig.connect(self._on_ollama_insight_received)
+        self._auto_scan_sig.connect(self._on_auto_scan_received)
+
+        # Scanner state variables
+        self._auto_scan_timer = QTimer(self)
+        self._auto_scan_timer.timeout.connect(self._cycle_auto_scan)
+        self._auto_scan_index = 0
+        self._auto_scan_active = False
+
+        # Set page-wide Bloomberg style overrides
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #000000;
+                color: #ffffff;
+                font-family: 'Courier New', 'Consolas', monospace;
+            }
+            QFrame {
+                border: 1px solid #333333;
+                background-color: #050505;
+            }
+        """)
+
+        # Build UI layout
+        self._lay = self.page_layout()
+        self._build_header()
+        self._build_offline_banner()
+        self._build_dashboard()
+        
+        # Connect news and calendar table double click interactions
+        self._news_table.itemDoubleClicked.connect(self._on_news_double_clicked)
+        self._cal_table.itemDoubleClicked.connect(self._on_cal_double_clicked)
+
+        # Regular update timer (polls MT5 every 4 seconds)
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._refresh)
+        self._timer.start(4000)
+
+        # Economic calendar & news polling timer (polls every 60 seconds)
+        self._news_timer = QTimer(self)
+        self._news_timer.timeout.connect(self._refresh_news)
+        self._news_timer.start(60000)
+
+        # Initial load
+        self._refresh()
+        QTimer.singleShot(1000, self._refresh_news)
+
+    def _build_header(self):
+        # Bloomberg Terminal Command Prompt Header
+        hdr_w = QWidget()
+        hdr_w.setStyleSheet("background-color: #000000; border: none; margin-bottom: 2px;")
+        hdr_lay = QVBoxLayout(hdr_w)
+        hdr_lay.setContentsMargins(0, 0, 0, 0)
+        hdr_lay.setSpacing(4)
+
+        # Row 1: Command bar
+        cmd_row = QHBoxLayout()
+        cmd_row.setContentsMargins(0, 0, 0, 0)
+        cmd_row.setSpacing(6)
+
+        # Terminal Prompt label
+        bbg_lbl = QLabel("BBG CMD ▸")
+        bbg_lbl.setFont(QFont("Courier New", 10, QFont.Weight.Bold))
+        bbg_lbl.setStyleSheet("color: #ffaa00; background: transparent; font-weight: bold;")
+        cmd_row.addWidget(bbg_lbl)
+
+        # Command input styled like a Bloomberg Terminal prompt
+        self._cmd_input = QLineEdit()
+        self._cmd_input.setFont(QFont("Courier New", 10, QFont.Weight.Bold))
+        self._cmd_input.setPlaceholderText("XAUUSD <Equity> GP <Go>")
+        self._cmd_input.setStyleSheet("""
+            QLineEdit {
+                background-color: #000000;
+                color: #ffaa00;
+                border: 2px solid #ffaa00;
+                border-radius: 0px;
+                padding: 4px 10px;
+                selection-background-color: #ffaa00;
+                selection-color: #000000;
+            }
+        """)
+        self._cmd_input.returnPressed.connect(self._on_bbg_command_submitted)
+        cmd_row.addWidget(self._cmd_input, stretch=1)
+
+        # Mechanical keys for Bloomberg style
+        go_btn = QPushButton("<GO>")
+        go_btn.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+        go_btn.setFixedWidth(65)
+        go_btn.setFixedHeight(28)
+        go_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        go_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #008800;
+                color: #ffffff;
+                border: 1px solid #00aa00;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #00aa00; }
+        """)
+        go_btn.clicked.connect(self._on_bbg_command_submitted)
+        cmd_row.addWidget(go_btn)
+
+        help_btn = QPushButton("<HELP>")
+        help_btn.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+        help_btn.setFixedWidth(70)
+        help_btn.setFixedHeight(28)
+        help_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        help_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #b80000;
+                color: #ffffff;
+                border: 1px solid #ff0000;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #ff0000; }
+        """)
+        help_btn.clicked.connect(lambda: self._cmd_input.setText("HELP"))
+        cmd_row.addWidget(help_btn)
+
+        self._conn_status = QLabel("○ INITIALIZING BRIDGE...")
+        self._conn_status.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self._conn_status.setStyleSheet("color: #aaaaaa; background: transparent; padding-left: 6px;")
+        cmd_row.addWidget(self._conn_status)
+
+        hdr_lay.addLayout(cmd_row)
+
+        # Row 2: Live Market Ticker Marquee
+        ticker_w = QWidget()
+        ticker_w.setFixedHeight(20)
+        ticker_w.setStyleSheet("background-color: #080808; border-top: 1px solid #222222; border-bottom: 1px solid #222222;")
+        ticker_lay = QHBoxLayout(ticker_w)
+        ticker_lay.setContentsMargins(10, 0, 10, 0)
+        
+        self._ticker_label = QLabel("WATCHLIST SYMBOLS: CONNECTING TO TERMINAL LIVE FEED...")
+        self._ticker_label.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        self._ticker_label.setStyleSheet("color: #ffcc00; background: transparent;")
+        ticker_lay.addWidget(self._ticker_label)
+        ticker_lay.addStretch()
+        
+        hdr_lay.addWidget(ticker_w)
+        self._lay.addWidget(hdr_w)
+
+    def _on_bbg_command_submitted(self):
+        cmd = self._cmd_input.text().strip().upper()
+        if not cmd:
+            return
+        
+        # Check custom commands first
+        if cmd.startswith("GATE_MODE") or cmd.startswith("GATE "):
+            parts = cmd.split(" ")
+            if len(parts) >= 2:
+                mode = parts[1].upper()
+                if mode in ["BLOCK", "SOFT", "WARN", "OFF"]:
+                    try:
+                        from scripts.trading_risk_manager import TradingRiskManager
+                        rm = TradingRiskManager()
+                        rm.set_mode(mode)
+                        self._cmd_input.clear()
+                        self._sug_reasoning.setText(
+                            f"=== BLOOMBERG TERMINAL RULE MODIFICATION ===\n"
+                            f"CMD: {cmd}\n"
+                            f"STATUS: SUCCESS\n"
+                            f"NEW GATEWAY MODE: {mode}\n\n"
+                            f"The Trading Risk Manager has hot-swapped the TimesFM G4 Gate mode.\n"
+                            f"Live bot execution sizing and risk evaluation will apply this rule immediately."
+                        )
+                        self._ai_res_lbl.hide()
+                        self._ai_res_w.show()
+                        return
+                    except Exception as e:
+                        self._sug_reasoning.setText(f"Failed to change gate mode: {e}")
+                        self._ai_res_lbl.hide()
+                        self._ai_res_w.show()
+                        return
+
+        # Check for Dual Thrust / London Breakout commands
+        is_dt = False
+        is_lon = False
+        tgt_sym = None
+        
+        parts = cmd.split(" ")
+        for p in parts:
+            if p in ["DT", "DUAL", "THRUST"]:
+                is_dt = True
+            elif p in ["LON", "LONDON", "BREAK"]:
+                is_lon = True
+            elif p and not p.startswith("<") and not p.endswith(">") and p not in ["GP", "GO"]:
+                tgt_sym = p
+                
+        if not tgt_sym and (is_dt or is_lon):
+            tgt_sym = self._ai_symbol_cb.currentText()
+            
+        if tgt_sym and (is_dt or is_lon):
+            tgt_sym = tgt_sym.split("<")[0].strip().upper()
+            self._cmd_input.clear()
+            self._ai_res_lbl.hide()
+            self._ai_res_w.show()
+            self._sug_reasoning.setText(f"Querying terminal and computing breakout levels for {tgt_sym}...")
+            
+            def run_calc():
+                try:
+                    import MetaTrader5 as mt5
+                    from scripts.trading_risk_manager import TradingRiskManager
+                    import numpy as np
+                    
+                    if not mt5.initialize():
+                        self._sug_reasoning.setText("Error: MT5 failed to initialize for breakout calculation.")
+                        return
+                        
+                    matched_sym = tgt_sym
+                    for s in self._watchlist_symbols:
+                        if s.upper().startswith(tgt_sym) or tgt_sym.startswith(s.upper()):
+                            matched_sym = s
+                            break
+                            
+                    s_info = mt5.symbol_info(matched_sym)
+                    if not s_info:
+                        self._sug_reasoning.setText(f"Error: Symbol {tgt_sym} not found in MT5 server.")
+                        return
+                        
+                    tick = mt5.symbol_info_tick(matched_sym)
+                    current_price = tick.ask if tick else 0.0
+                    
+                    d1_rates = mt5.copy_rates_from_pos(matched_sym, mt5.TIMEFRAME_D1, 0, 1)
+                    daily_open = float(d1_rates[0]["open"]) if d1_rates is not None and len(d1_rates) > 0 else 0.0
+                    
+                    rm = TradingRiskManager()
+                    
+                    if is_dt:
+                        rates = mt5.copy_rates_from_pos(matched_sym, mt5.TIMEFRAME_H1, 0, 200)
+                        if rates is None or len(rates) < rm.dt_rg:
+                            self._sug_reasoning.setText(f"Error: Insufficient historical H1 rates to calculate Dual Thrust for {matched_sym}.")
+                            return
+                        closes = np.array([float(x["close"]) for x in rates])
+                        highs = np.array([float(x["high"]) for x in rates])
+                        lows = np.array([float(x["low"]) for x in rates])
+                        
+                        sig_up, sig_lo = rm.calculate_dual_thrust_levels(daily_open, highs, lows, closes)
+                        
+                        status = "NEUTRAL"
+                        color_code = "⚪"
+                        if current_price > sig_up:
+                            status = "BULLISH BREAKOUT (BUY)"
+                            color_code = "🟢"
+                        elif current_price < sig_lo:
+                            status = "BEARISH BREAKOUT (SELL)"
+                            color_code = "🔴"
+                            
+                        self._sug_reasoning.setText(
+                            f"=== DUAL THRUST RANGE BREAKOUT ({matched_sym}) ===\n"
+                            f"Current Price: {current_price:.5f}\n"
+                            f"Daily Open: {daily_open:.5f}\n"
+                            f"Lookback Period: {rm.dt_rg} bars (H1)\n"
+                            f"Thrust Parameter (K): {rm.dt_param}\n\n"
+                            f"Trigger Levels:\n"
+                            f"  UPPER BUY TRIGGER ▸ {sig_up:.5f}\n"
+                            f"  LOWER SELL TRIGGER ▸ {sig_lo:.5f}\n\n"
+                            f"Breakout Status: {color_code} {status}\n\n"
+                            f"Risk Manager Action: Sizing multiplier of 1.25x will apply if an entry is triggered in the breakout direction."
+                        )
+                    elif is_lon:
+                        rates = mt5.copy_rates_from_pos(matched_sym, mt5.TIMEFRAME_M15, 1, 96)
+                        if rates is None or len(rates) == 0:
+                            self._sug_reasoning.setText(f"Error: Insufficient historical M15 rates to calculate London Breakout for {matched_sym}.")
+                            return
+                            
+                        asia_highs = []
+                        asia_lows = []
+                        in_session = False
+                        from datetime import datetime, timezone, timedelta
+                        for r in reversed(rates):
+                            bar_utc = datetime.fromtimestamp(int(r["time"]), tz=timezone.utc)
+                            bar_malta = bar_utc + timedelta(hours=2)
+                            is_asia = (0 <= bar_malta.hour < 8)
+                            if is_asia:
+                                in_session = True
+                                asia_highs.append(float(r["high"]))
+                                asia_lows.append(float(r["low"]))
+                            elif in_session:
+                                break
+                                
+                        if len(asia_highs) == 0:
+                            self._sug_reasoning.setText(f"Error: Could not extract Asia Session rates for {matched_sym}.")
+                            return
+                            
+                        asia_high = max(asia_highs)
+                        asia_low = min(asia_lows)
+                        
+                        sig_up, sig_lo = rm.calculate_london_breakout_levels(asia_high, asia_low, threshold_points=50.0, point_size=s_info.point)
+                        
+                        status = "NEUTRAL"
+                        color_code = "⚪"
+                        if current_price > sig_up:
+                            status = "BULLISH BREAKOUT (BUY)"
+                            color_code = "🟢"
+                        elif current_price < sig_lo:
+                            status = "BEARISH BREAKOUT (SELL)"
+                            color_code = "🔴"
+                            
+                        self._sug_reasoning.setText(
+                            f"=== LONDON SESSION RANGE BREAKOUT ({matched_sym}) ===\n"
+                            f"Current Price: {current_price:.5f}\n"
+                            f"Asia Session High: {asia_high:.5f}\n"
+                            f"Asia Session Low: {asia_low:.5f}\n"
+                            f"Buffer Points: 50.0 points\n\n"
+                            f"Trigger Levels:\n"
+                            f"  UPPER BUY TRIGGER ▸ {sig_up:.5f}\n"
+                            f"  LOWER SELL TRIGGER ▸ {sig_lo:.5f}\n\n"
+                            f"Breakout Status: {color_code} {status}\n\n"
+                            f"Risk Manager Action: Sizing multiplier of 1.25x will apply if an entry is triggered in the breakout direction."
+                        )
+                except Exception as ex:
+                    self._sug_reasoning.setText(f"Error executing breakout calculation: {ex}")
+            
+            threading.Thread(target=run_calc, daemon=True).start()
+            return
+
+        # Slicing e.g. "XAUUSD <Equity> GP <Go>" or just "XAUUSD"
+        symbol = cmd.split(" ")[0].split("<")[0]
+        if symbol == "HELP":
+            self._cmd_input.clear()
+            self._sug_reasoning.setText(
+                "=== BLOOMBERG TERMINAL COMMAND HELP ===\n"
+                "- Type symbol (e.g., 'XAUUSD') and press <GO> to analyze that instrument.\n"
+                "- Type 'GATE_MODE <mode>' (BLOCK, SOFT, WARN, OFF) to change risk gating.\n"
+                "- Type 'DT <symbol>' or 'DUAL <symbol>' to compute Dual Thrust levels.\n"
+                "- Type 'LONDON <symbol>' or 'LON <symbol>' to compute London Session breakout triggers.\n"
+                "- Ticker feed shows Bid/Ask/Spread in real-time below the Command Bar.\n"
+                "- Risk Gating matches the live bot G4 execution sizing."
+            )
+            self._ai_res_lbl.hide()
+            self._ai_res_w.show()
+            return
+            
+        if symbol in self._watchlist_symbols:
+            self._ai_symbol_cb.setCurrentText(symbol)
+            self._get_suggestion()
+        else:
+            # Fuzzy match or add to watchlist
+            self._cmd_input.clear()
+            self._sym_input.setText(symbol)
+            self._add_to_watchlist()
+            self._ai_symbol_cb.setCurrentText(symbol)
+            self._get_suggestion()
+
+    def _build_offline_banner(self):
+        self._offline_w = QFrame()
+        self._offline_w.setStyleSheet("""
+            QFrame {
+                background: #000000;
+                border: 2px dashed #ff0000;
+                border-radius: 0px;
+                padding: 20px;
+            }
+        """)
+        lay = QVBoxLayout(self._offline_w)
+        lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        icon = QLabel("⚠️")
+        icon.setFont(QFont("Courier New", 28))
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(icon)
+        
+        title = QLabel("MT5 CONNECTION OFFLINE")
+        title.setFont(QFont("Courier New", 12, QFont.Weight.Bold))
+        title.setStyleSheet("color: #ff0000; background: transparent;")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(title)
+        
+        desc = QLabel(
+            "OCTO Bloomberg Bridge cannot connect to the MetaTrader 5 Terminal.\n\n"
+            "Diagnostic checklist:\n"
+            "1. MetaTrader 5 terminal is open and authorized (Options -> Expert Advisors -> Allow WebRequest).\n"
+            "2. Ensure the MT5 bridge script 'mt5_mcp_server.py' is running or enabled.\n"
+            "3. Demo or Live account connection is online in the bottom right corner of MT5.\n\n"
+            "Reconnecting..."
+        )
+        desc.setFont(QFont("Courier New", 8))
+        desc.setStyleSheet("color: #ffffff; background: transparent;")
+        desc.setWordWrap(True)
+        desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(desc)
+        
+        self._lay.addWidget(self._offline_w)
+
     def _build_dashboard(self):
-        # Container widget to easily show/hide the entire dashboard
+        # Bloomberg multi-pane grid container
         self._dash_w = QWidget()
         self._dash_w.setStyleSheet("background: transparent;")
         self._dash_lay = QVBoxLayout(self._dash_w)
         self._dash_lay.setContentsMargins(0, 0, 0, 0)
-        self._dash_lay.setSpacing(10)
+        self._dash_lay.setSpacing(8)
 
-        # 1. Account summary cards row
+        # ── PANEL 1: Terminal Split Pane (Left Column: Account/Trading | Right Column: Live Agent Chat) ──
+        split_top = QHBoxLayout()
+        split_top.setSpacing(8)
+
+        # Left Column: Terminal Trading metrics
+        left_col = QVBoxLayout()
+        left_col.setSpacing(6)
+
+        # 1. Cards row
         self._cards_lay = QGridLayout()
         self._cards_lay.setSpacing(6)
         
-        self._acc_card, self._acc_card_lay = self.card("ACCOUNT METRICS", PRI)
-        self._bal_card, self._bal_card_lay = self.card("BALANCE & EQUITY", ACC2)
-        self._pnl_card, self._pnl_card_lay = self.card("FLOATING PROFIT", GREEN)
+        self._acc_card, self._acc_card_lay = self.card("METRICS ◈ ACCOUNT PROFILE", "#ffaa00")
+        self._bal_card, self._bal_card_lay = self.card("METRICS ◈ BALANCE & EQUITY", "#ffaa00")
+        self._pnl_card, self._pnl_card_lay = self.card("METRICS ◈ FLOATING P&L", "#ffaa00")
         
+        # Bloomberg theme overrides
+        for card in [self._acc_card, self._bal_card, self._pnl_card]:
+            card.setStyleSheet("background-color: #030303; border: 1px solid #333333; border-radius: 0px;")
+
         self._cards_lay.addWidget(self._acc_card, 0, 0)
         self._cards_lay.addWidget(self._bal_card, 0, 1)
         self._cards_lay.addWidget(self._pnl_card, 0, 2)
         
         # Populate initial labels in cards
-        self._acc_lbl = self.lbl("Login: --\nBroker: --\nServer: --\nLeverage: 1:--", 8, color=WHITE)
+        self._acc_lbl = self.lbl("Login: --\nBroker: --\nServer: --\nLeverage: 1:--", 7.5, color="#ffffff")
         self._acc_card_lay.addWidget(self._acc_lbl)
         
-        self._bal_lbl = self.lbl("Balance: $0.00\nEquity: $0.00\nFree Margin: $0.00", 8, color=WHITE)
+        self._bal_lbl = self.lbl("Balance: $0.00\nEquity: $0.00\nFree Margin: $0.00", 7.5, color="#ffffff")
         self._bal_card_lay.addWidget(self._bal_lbl)
         
-        self._pnl_lbl = self.lbl("$0.00\n(0.00% Margin)", 14, bold=True, color=GREEN)
+        self._pnl_lbl = self.lbl("$0.00\n(0.00% Margin)", 13, bold=True, color="#00ff00")
         self._pnl_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._pnl_card_lay.addWidget(self._pnl_lbl)
         
-        self._dash_lay.addLayout(self._cards_lay)
+        left_col.addLayout(self._cards_lay)
 
-        # 2. Split middle section: Positions (left) & Watchlist (right)
-        split = QHBoxLayout()
-        split.setSpacing(8)
-
-        # Left Column: Active Positions
-        pos_w, pos_lay = self.card("ACTIVE POSITIONS", PRI)
+        # 2. Active Positions Grid
+        pos_w, pos_lay = self.card("POSITIONS ◈ ACTIVE MT5 ORDERS", "#ffaa00")
+        pos_w.setStyleSheet("background-color: #030303; border: 1px solid #333333; border-radius: 0px;")
+        
         self._pos_table = QTableWidget(0, 8)
         self._pos_table.setHorizontalHeaderLabels([
             "Ticket", "Symbol", "Type", "Lots", "Open", "Current", "P&L", "Action"
         ])
         self._style_table(self._pos_table)
+        self._pos_table.setFixedHeight(120)
         pos_lay.addWidget(self._pos_table)
-        split.addWidget(pos_w, stretch=5)
+        left_col.addWidget(pos_w)
 
-        # Right Column: Watchlist
-        wl_w, wl_lay = self.card("WATCHLIST", ACC2)
+        # 3. Watchlist Grid
+        wl_w, wl_lay = self.card("MARKET WATCH ◈ SECURITIES LIST", "#ffaa00")
+        wl_w.setStyleSheet("background-color: #030303; border: 1px solid #333333; border-radius: 0px;")
         
         # Add symbol row
         add_sym_row = QHBoxLayout()
         add_sym_row.setSpacing(4)
-        self._sym_input = self.field("Symbol (e.g. XAUUSD)", height=24)
-        add_btn = self.btn("+ Add", color=ACC2, height=24)
+        self._sym_input = self.field("Symbol (e.g. XAUUSD)", height=22)
+        self._sym_input.setStyleSheet("""
+            QLineEdit {
+                background-color: #000000;
+                color: #ffffff;
+                border: 1px solid #555555;
+                padding: 1px 4px;
+            }
+        """)
+        add_btn = self.btn("+ Add", color="#ffcc00", height=22)
+        add_btn.setStyleSheet("QPushButton {background: transparent; color: #ffcc00; border: 1px solid #ffcc00; padding: 0 6px;}")
         add_btn.clicked.connect(self._add_to_watchlist)
         
-        sync_btn = self.btn("⟳ Sync MT5", color=PRI, height=24)
+        sync_btn = self.btn("⟳ Sync MT5", color="#ffaa00", height=22)
+        sync_btn.setStyleSheet("QPushButton {background: transparent; color: #ffaa00; border: 1px solid #ffaa00; padding: 0 6px;}")
         sync_btn.clicked.connect(self._sync_watchlist_with_mt5)
         
         add_sym_row.addWidget(self._sym_input, stretch=2)
@@ -412,6 +837,7 @@ class Mt5Page(OctoPage):
             "Symbol", "Bid", "Ask", "Spread", "Suggest", ""
         ])
         self._style_table(self._wl_table)
+        self._wl_table.setFixedHeight(125)
         self._wl_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self._wl_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         self._wl_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
@@ -420,41 +846,110 @@ class Mt5Page(OctoPage):
         self._wl_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         self._wl_table.setColumnWidth(1, 65)
         self._wl_table.setColumnWidth(2, 65)
-        self._wl_table.setColumnWidth(3, 65)
+        self._wl_table.setColumnWidth(3, 50)
         wl_lay.addWidget(self._wl_table)
-        
-        split.addWidget(wl_w, stretch=4)
-        self._dash_lay.addLayout(split)
+        left_col.addWidget(wl_w)
 
-        # 3. Bottom Section: Gemini AI Trading Suggestions
-        ai_w, ai_lay = self.card("⚡ GEMINI AI TRADING SUGGESTIONS", ACC2)
+        split_top.addLayout(left_col, stretch=6)
+
+        # Right Column: Embedded Chat Desk - Live Messaging with AI Trading Manager
+        chat_pane, chat_lay = self.card("MSG ◈ AI PORTFOLIO MANAGER & RISK DESK", "#ffaa00")
+        chat_pane.setStyleSheet("background-color: #030303; border: 1px solid #333333; border-radius: 0px;")
+        
+        # Brief description
+        sub = QLabel("Coordinating with Live G4 Risk Managers and MT5 Automated Trading Agents...")
+        sub.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        sub.setStyleSheet("color: #888888; background: transparent;")
+        chat_lay.addWidget(sub)
+        
+        # Instantiate the ChatWidget directly on the dashboard page
+        from ui import ChatWidget
+        sys_prompt = (
+            "You are the user's executive Bloomberg AI Trading Desk, Risk Manager, and quantitative coordinator. "
+            "You are connected live to their MetaTrader 5 account and have advanced quantitative technical analysis skills. "
+            "You possess strict knowledge profiles for ALL symbols, active strategies, and math models:\n\n"
+            "1. SYMBOL-SPECIFIC STRATEGIES & SKILLS:\n"
+            "   - EURUSD+ : Bollinger Bands Bottom W-Pattern Recognition (double bottoms) on M30/H1. Looks for lower band pierces, mid-band rebounds, and higher lows to trigger breakouts.\n"
+            "   - XAUUSD+ (Gold) & XAUEUR+ : M15 Pure Volume wick-absorption + Awesome Oscillator (AO) saucer/zero-line crossovers. Leverages safe-haven geopolitics.\n"
+            "   - GBPUSD+ : London Session Breakouts (captures post-Asia sweeps) + H1 Robust RSI & EMA Plateau.\n"
+            "   - USDJPY+ & AUDUSD+ : H1 Robust EMA/RSI crossovers with dynamically adjusted reward targets (1.5x for JPY to avoid range consolidation).\n"
+            "   - NAS100 (Nasdaq) : M15 Volume Profile + PDH/PDL sweeps + FVG Proximity with strict 2% balance equivalent risk lot cap.\n"
+            "   - BTCUSD (Bitcoin) & CL-OIL (Crude) : M15 Pure Volume VSA with risk-on trend proxies (BTC tracks NAS100; CL-OIL tracks safe-haven safe-stops).\n\n"
+            "2. MATHEMATICAL ENGINES:\n"
+            "   - Dual Thrust Breakout: sig_up = open_price + k1 * Max(range1, range2) | sig_lo = open_price - (1-k2) * Max(range1, range2). Looks back N=5 bars.\n"
+            "   - London Breakout: sig_up = Asia_High + buffer * point_size | sig_lo = Asia_Low - buffer * point_size (00:00 - 08:00 Malta Session).\n"
+            "   - Bollinger Bottom W: traces double bottoms (pierce -> mid MA -> higher low -> upper band breakout).\n"
+            "   - Awesome Oscillator: AO = SMA((H+L)/2, 5) - SMA((H+L)/2, 34). Bullish zero-cross or green saucer is long.\n\n"
+            "3. POSITION SIZING OVERLAYS:\n"
+            "   - Boost (1.25x): Sizing is enhanced when trade entry aligns with technical breakouts.\n"
+            "   - Block (0.0x) / reduction (0.5x): Sizing is cut or blocked on contrarian breakouts based on Gate Mode (BLOCK, SOFT, WARN, OFF).\n\n"
+            "Keep your responses extremely data-driven, mathematically precise, professional, and direct. Use markdown formatting, bullet points, and tables. Avoid generic or speculative financial advice."
+        )
+        self._embed_chat = ChatWidget(system=sys_prompt)
+        self._embed_chat.setStyleSheet("""
+            QWidget {
+                background-color: #020202;
+                border: 1px solid #222222;
+            }
+            QTextEdit {
+                background-color: #000000;
+                color: #ffffff;
+                border: 1px solid #333333;
+            }
+            QLineEdit {
+                background-color: #000000;
+                color: #ffaa00;
+                border: 1px solid #ffaa00;
+            }
+        """)
+        chat_lay.addWidget(self._embed_chat, stretch=1)
+        
+        # Initial greeting from Trading Desk
+        self._embed_chat._append(
+            f'<div style="color:#ffaa00;margin:2px 0;font-family:\'Courier New\';font-size:8.5pt;"><b>AI Trading Desk:</b> Connection established. '
+            f'Real-time risk grids and automated model statistics (TimesFM, Dual Thrust, London Breakouts) are bound cleanly. '
+            f'Ask me anything about your current trades or strategies today.</div>'
+        )
+
+        split_top.addWidget(chat_pane, stretch=4)
+        self._dash_lay.addLayout(split_top)
+
+        # ── PANEL 2: AI Suggestions & Forecasts (Left) vs News & Economic Calendar (Right) ──
+        split_bottom = QHBoxLayout()
+        split_bottom.setSpacing(8)
+
+        # Left: AI Trading suggestions (including TimesFM and Breakouts)
+        ai_w, ai_lay = self.card("AI PATTERNS ◈ GEMINI & TIMESFM PATTERN ANALYSIS", "#ffaa00")
+        ai_w.setStyleSheet("background-color: #030303; border: 1px solid #333333; border-radius: 0px;")
         
         # Inputs row
         ai_inputs = QHBoxLayout()
         ai_inputs.setSpacing(6)
-        ai_inputs.addWidget(self.lbl("Analyze:", 8, bold=True, color=WHITE))
+        ai_inputs.addWidget(self.lbl("Analyze:", 7, bold=True, color="#ffffff"))
         
         self._ai_symbol_cb = QComboBox()
-        self._ai_symbol_cb.setFont(QFont("Courier New", 8))
-        self._ai_symbol_cb.setFixedHeight(26)
+        self._ai_symbol_cb.setFont(QFont("Courier New", 7))
+        self._ai_symbol_cb.setFixedHeight(24)
         self._style_combobox(self._ai_symbol_cb)
         self._ai_symbol_cb.currentTextChanged.connect(self._update_relevant_trading_links)
         ai_inputs.addWidget(self._ai_symbol_cb, stretch=1)
         
-        ai_inputs.addWidget(self.lbl("Timeframe:", 8, bold=True, color=WHITE))
+        ai_inputs.addWidget(self.lbl("TF:", 7, bold=True, color="#ffffff"))
         self._ai_tf_cb = QComboBox()
         self._ai_tf_cb.addItems(["M1", "M5", "M15", "M30", "H1", "H4", "D1"])
         self._ai_tf_cb.setCurrentText("H1")
-        self._ai_tf_cb.setFont(QFont("Courier New", 8))
-        self._ai_tf_cb.setFixedHeight(26)
+        self._ai_tf_cb.setFont(QFont("Courier New", 7))
+        self._ai_tf_cb.setFixedHeight(24)
         self._style_combobox(self._ai_tf_cb)
         ai_inputs.addWidget(self._ai_tf_cb, stretch=1)
         
-        self._ai_btn = self.btn("✨ SUGGESTION", color=ACC2, height=26)
+        self._ai_btn = self.btn("✨ Suggest", color="#ffaa00", height=24)
+        self._ai_btn.setStyleSheet("QPushButton {background: transparent; color: #ffaa00; border: 1px solid #ffaa00; padding: 0 4px;}")
         self._ai_btn.clicked.connect(self._get_suggestion)
-        ai_inputs.addWidget(self._ai_btn, stretch=2)
+        ai_inputs.addWidget(self._ai_btn, stretch=1)
 
-        self._tf_btn = self.btn("🔮 TIMESFM FORECAST", color=PRI, height=26)
+        self._tf_btn = self.btn("🔮 TFM Forecast", color="#00ff88", height=24)
+        self._tf_btn.setStyleSheet("QPushButton {background: transparent; color: #00ff88; border: 1px solid #00ff88; padding: 0 4px;}")
         self._tf_btn.clicked.connect(self._get_timesfm_forecast)
         ai_inputs.addWidget(self._tf_btn, stretch=2)
         ai_lay.addLayout(ai_inputs)
@@ -463,20 +958,20 @@ class Mt5Page(OctoPage):
         scanner_row = QHBoxLayout()
         scanner_row.setSpacing(6)
         self._auto_scan_cb = QCheckBox("🔔 Continuous Auto-Scan & Alerts")
-        self._auto_scan_cb.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
-        self._auto_scan_cb.setStyleSheet(f"color: {ACC2}; background: transparent; padding: 2px;")
+        self._auto_scan_cb.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        self._auto_scan_cb.setStyleSheet("color: #ffaa00; background: transparent; padding: 2px;")
         self._auto_scan_cb.stateChanged.connect(self._on_auto_scan_changed)
         scanner_row.addWidget(self._auto_scan_cb)
         
-        self._auto_scan_status = self.lbl("Scanner status: IDLE", 7, color=TEXT_DIM)
+        self._auto_scan_status = self.lbl("Scanner: IDLE", 7, color="#888888")
         scanner_row.addWidget(self._auto_scan_status)
         scanner_row.addStretch()
         ai_lay.addLayout(scanner_row)
 
         # AI Result Area
-        self._ai_res_lbl = self.lbl("Select a symbol and click Suggestion or TimesFM Forecast to analyze market patterns.", 8, color=TEXT_DIM, wrap=True)
+        self._ai_res_lbl = self.lbl("Select symbol and click Suggestion or TimesFM Forecast to load statistics.", 8, color="#888888", wrap=True)
         
-        # Create a structured layout for suggestion output
+        # Structured layout for suggestion output
         self._ai_res_w = QWidget()
         self._ai_res_w.setStyleSheet("background: transparent; border: none;")
         self._ai_res_lay = QVBoxLayout(self._ai_res_w)
@@ -488,43 +983,43 @@ class Mt5Page(OctoPage):
         sug_metrics.setSpacing(8)
         
         self._sug_dir_w = QWidget()
-        self._sug_dir_w.setStyleSheet(f"background: {DARK}; border: 1px solid {BORDER}; border-radius: 4px;")
+        self._sug_dir_w.setStyleSheet("background: #080808; border: 1px solid #333333; border-radius: 0px;")
         dir_lay = QVBoxLayout(self._sug_dir_w)
         dir_lay.setContentsMargins(6,4,6,4)
-        dir_lay.addWidget(self.lbl("DIRECTION", 7, color=TEXT_DIM, bold=True))
-        self._sug_dir_val = self.lbl("WAIT", 16, bold=True, color=ACC2)
+        dir_lay.addWidget(self.lbl("DIRECTION", 7, color="#888888", bold=True))
+        self._sug_dir_val = self.lbl("WAIT", 13, bold=True, color="#ffaa00")
         self._sug_dir_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
         dir_lay.addWidget(self._sug_dir_val)
         sug_metrics.addWidget(self._sug_dir_w, stretch=1)
 
         self._sug_conf_w = QWidget()
-        self._sug_conf_w.setStyleSheet(f"background: {DARK}; border: 1px solid {BORDER}; border-radius: 4px;")
+        self._sug_conf_w.setStyleSheet("background: #080808; border: 1px solid #333333; border-radius: 0px;")
         conf_lay = QVBoxLayout(self._sug_conf_w)
         conf_lay.setContentsMargins(6,4,6,4)
-        conf_lay.addWidget(self.lbl("CONFIDENCE", 7, color=TEXT_DIM, bold=True))
-        self._sug_conf_val = self.lbl("MEDIUM", 11, bold=True, color=WHITE)
+        conf_lay.addWidget(self.lbl("CONFIDENCE", 7, color="#888888", bold=True))
+        self._sug_conf_val = self.lbl("MEDIUM", 9, bold=True, color="#ffffff")
         self._sug_conf_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
         conf_lay.addWidget(self._sug_conf_val)
         sug_metrics.addWidget(self._sug_conf_w, stretch=1)
 
         self._sug_levels_w = QWidget()
-        self._sug_levels_w.setStyleSheet(f"background: {DARK}; border: 1px solid {BORDER}; border-radius: 4px;")
+        self._sug_levels_w.setStyleSheet("background: #080808; border: 1px solid #333333; border-radius: 0px;")
         lvl_grid = QGridLayout(self._sug_levels_w)
         lvl_grid.setContentsMargins(6,4,6,4)
-        lvl_grid.addWidget(self.lbl("ENTRY", 6, color=TEXT_DIM), 0, 0)
-        self._sug_entry = self.lbl("--", 8, bold=True, color=WHITE)
+        lvl_grid.addWidget(self.lbl("ENTRY", 6.5, color="#888888"), 0, 0)
+        self._sug_entry = self.lbl("--", 8, bold=True, color="#ffffff")
         lvl_grid.addWidget(self._sug_entry, 0, 1)
         
-        lvl_grid.addWidget(self.lbl("SL", 6, color=TEXT_DIM), 1, 0)
-        self._sug_sl = self.lbl("--", 8, bold=True, color=RED)
+        lvl_grid.addWidget(self.lbl("SL", 6.5, color="#888888"), 1, 0)
+        self._sug_sl = self.lbl("--", 8, bold=True, color="#ff0000")
         lvl_grid.addWidget(self._sug_sl, 1, 1)
 
-        lvl_grid.addWidget(self.lbl("TP", 6, color=TEXT_DIM), 0, 2)
-        self._sug_tp = self.lbl("--", 8, bold=True, color=GREEN)
+        lvl_grid.addWidget(self.lbl("TP", 6.5, color="#888888"), 0, 2)
+        self._sug_tp = self.lbl("--", 8, bold=True, color="#00ff00")
         lvl_grid.addWidget(self._sug_tp, 0, 3)
 
-        lvl_grid.addWidget(self.lbl("R:R", 6, color=TEXT_DIM), 1, 2)
-        self._sug_rr = self.lbl("--", 8, bold=True, color=WHITE)
+        lvl_grid.addWidget(self.lbl("R:R", 6.5, color="#888888"), 1, 2)
+        self._sug_rr = self.lbl("--", 8, bold=True, color="#ffffff")
         lvl_grid.addWidget(self._sug_rr, 1, 3)
         sug_metrics.addWidget(self._sug_levels_w, stretch=2)
 
@@ -532,21 +1027,21 @@ class Mt5Page(OctoPage):
 
         # Reasoning block
         self._sug_reason_card = QFrame()
-        self._sug_reason_card.setStyleSheet(f"background: #00080f; border: 1px solid {BORDER}; border-radius: 3px; padding: 6px;")
+        self._sug_reason_card.setStyleSheet("background: #030303; border: 1px solid #333333; border-radius: 0px; padding: 6px;")
         reason_lay = QVBoxLayout(self._sug_reason_card)
         reason_lay.setContentsMargins(4,4,4,4)
-        reason_lay.addWidget(self.lbl("AI TECHNICAL ANALYSIS REASONING", 7, bold=True, color=ACC2))
-        self._sug_reasoning = self.lbl("Waiting for analysis request...", 8, color=TEXT, wrap=True)
+        reason_lay.addWidget(self.lbl("AI QUANT & TECH ANALYSIS REASONING", 7.5, bold=True, color="#ffaa00"))
+        self._sug_reasoning = self.lbl("Waiting for analysis request...", 8, color="#ffffff", wrap=True)
         reason_lay.addWidget(self._sug_reasoning)
         self._ai_res_lay.addWidget(self._sug_reason_card)
 
-        # Relevant Market News & Macro Calendar Links Card
+        # Relevant Market News Card
         self._sug_links_card = QFrame()
-        self._sug_links_card.setStyleSheet(f"background: #00080f; border: 1px solid {BORDER}; border-radius: 3px; padding: 6px;")
+        self._sug_links_card.setStyleSheet("background: #030303; border: 1px solid #333333; border-radius: 0px; padding: 6px;")
         links_lay = QVBoxLayout(self._sug_links_card)
         links_lay.setContentsMargins(4,4,4,4)
-        links_lay.addWidget(self.lbl("RELEVANT MARKET NEWS & MACRO CALENDAR LINKS", 7, bold=True, color=ACC2))
-        self._sug_links_lbl = self.lbl("No active symbol selected.", 8, color=TEXT, wrap=True)
+        links_lay.addWidget(self.lbl("STRATEGY METRICS & CALENDAR CROSS-REFERENCES", 7.5, bold=True, color="#ffaa00"))
+        self._sug_links_lbl = self.lbl("No active symbol selected.", 8, color="#ffffff", wrap=True)
         self._sug_links_lbl.setOpenExternalLinks(True)
         links_lay.addWidget(self._sug_links_lbl)
         self._ai_res_lay.addWidget(self._sug_links_card)
@@ -567,31 +1062,31 @@ class Mt5Page(OctoPage):
         tf_metrics.setSpacing(8)
         
         self._tf_dir_w = QWidget()
-        self._tf_dir_w.setStyleSheet(f"background: {DARK}; border: 1px solid {BORDER}; border-radius: 4px;")
+        self._tf_dir_w.setStyleSheet("background: #080808; border: 1px solid #333333; border-radius: 0px;")
         tf_dir_lay = QVBoxLayout(self._tf_dir_w)
         tf_dir_lay.setContentsMargins(6,4,6,4)
-        tf_dir_lay.addWidget(self.lbl("EXPECTED TREND", 7, color=TEXT_DIM, bold=True))
-        self._tf_dir_val = self.lbl("NEUTRAL", 16, bold=True, color=ACC2)
+        tf_dir_lay.addWidget(self.lbl("EXPECTED TREND", 7, color="#888888", bold=True))
+        self._tf_dir_val = self.lbl("NEUTRAL", 13, bold=True, color="#ffaa00")
         self._tf_dir_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tf_dir_lay.addWidget(self._tf_dir_val)
         tf_metrics.addWidget(self._tf_dir_w, stretch=1)
 
         self._tf_target_w = QWidget()
-        self._tf_target_w.setStyleSheet(f"background: {DARK}; border: 1px solid {BORDER}; border-radius: 4px;")
+        self._tf_target_w.setStyleSheet("background: #080808; border: 1px solid #333333; border-radius: 0px;")
         tf_target_lay = QVBoxLayout(self._tf_target_w)
         tf_target_lay.setContentsMargins(6,4,6,4)
-        tf_target_lay.addWidget(self.lbl("TARGET PRICE (+24H)", 7, color=TEXT_DIM, bold=True))
-        self._tf_target_val = self.lbl("--", 12, bold=True, color=WHITE)
+        tf_target_lay.addWidget(self.lbl("TARGET PRICE (+24H)", 7, color="#888888", bold=True))
+        self._tf_target_val = self.lbl("--", 10.5, bold=True, color="#ffffff")
         self._tf_target_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tf_target_lay.addWidget(self._tf_target_val)
         tf_metrics.addWidget(self._tf_target_w, stretch=1)
 
         self._tf_move_w = QWidget()
-        self._tf_move_w.setStyleSheet(f"background: {DARK}; border: 1px solid {BORDER}; border-radius: 4px;")
+        self._tf_move_w.setStyleSheet("background: #080808; border: 1px solid #333333; border-radius: 0px;")
         tf_move_lay = QVBoxLayout(self._tf_move_w)
         tf_move_lay.setContentsMargins(6,4,6,4)
-        tf_move_lay.addWidget(self.lbl("EXPECTED MOVE", 7, color=TEXT_DIM, bold=True))
-        self._tf_move_val = self.lbl("--", 12, bold=True, color=WHITE)
+        tf_move_lay.addWidget(self.lbl("EXPECTED MOVE", 7, color="#888888", bold=True))
+        self._tf_move_val = self.lbl("--", 10.5, bold=True, color="#ffffff")
         self._tf_move_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tf_move_lay.addWidget(self._tf_move_val)
         tf_metrics.addWidget(self._tf_move_w, stretch=1)
@@ -600,10 +1095,10 @@ class Mt5Page(OctoPage):
 
         # Forecast intervals table
         tf_table_card = QFrame()
-        tf_table_card.setStyleSheet(f"background: #00080f; border: 1px solid {BORDER}; border-radius: 3px; padding: 6px;")
+        tf_table_card.setStyleSheet("background: #030303; border: 1px solid #333333; border-radius: 0px; padding: 6px;")
         table_card_lay = QVBoxLayout(tf_table_card)
         table_card_lay.setContentsMargins(4,4,4,4)
-        table_card_lay.addWidget(self.lbl("🔮 TIMESFM STEP FORECAST & 80% CONFIDENCE INTERVAL", 7, bold=True, color=PRI))
+        table_card_lay.addWidget(self.lbl("🔮 TIMESFM STEP FORECAST & 80% CONFIDENCE INTERVAL", 7.5, bold=True, color="#ffaa00"))
         
         self._tf_table = QTableWidget(0, 4)
         self._tf_table.setHorizontalHeaderLabels([
@@ -616,118 +1111,46 @@ class Mt5Page(OctoPage):
         self._tf_res_lay.addWidget(tf_table_card)
         ai_lay.addWidget(self._tf_res_w)
         self._tf_res_w.hide()
+        split_bottom.addWidget(ai_w, stretch=6)
 
-        # 3. Tabbed Bottom Section: AI Analytics vs News/Calendar
-        tab_row = QHBoxLayout()
-        tab_row.setSpacing(10)
-        
-        self._ai_tab_btn = self.btn("✨ AI TRADING ANALYTICS", color=PRI, height=28)
-        self._ai_tab_btn.clicked.connect(lambda: self._switch_tab(0))
-        self._ai_tab_btn.setStyleSheet(f"background: {PRI_GHO}; color: {PRI}; border: 1px solid {PRI}; border-radius: 3px; padding: 0 12px;")
-        
-        self._news_tab_btn = self.btn("📰 LIVE NEWS & CALENDAR", color=TEXT_DIM, height=28)
-        self._news_tab_btn.clicked.connect(lambda: self._switch_tab(1))
-        self._news_tab_btn.setStyleSheet(f"background: transparent; color: {TEXT_DIM}; border: 1px solid {BORDER}; border-radius: 3px; padding: 0 12px;")
-        
-        tab_row.addWidget(self._ai_tab_btn)
-        tab_row.addWidget(self._news_tab_btn)
-        tab_row.addStretch()
-        self._dash_lay.addLayout(tab_row)
-        
-        # QStackedWidget to contain our tabs
-        self._stacked_w = QStackedWidget()
-        
-        # Tab 1: AI suggestions + TimesFM (ai_w)
-        self._stacked_w.addWidget(ai_w)
-        
-        # Tab 2: Economic Calendar & News
-        self._news_tab_w = QWidget()
-        self._news_tab_w.setStyleSheet("background: transparent; border: none;")
-        news_tab_lay = QVBoxLayout(self._news_tab_w)
+        # Right: Financial news crawl & Economic calendar
+        news_tab_w = QWidget()
+        news_tab_w.setStyleSheet("background: transparent; border: none;")
+        news_tab_lay = QVBoxLayout(news_tab_w)
         news_tab_lay.setContentsMargins(0, 0, 0, 0)
-        news_tab_lay.setSpacing(8)
-        
-        # Row 0: Quick Trading Links Card
-        import webbrowser
-        links_card, links_card_lay = self.card("🌐 QUICK TRADING CALENDARS & NEWS", PRI)
-        links_row = QHBoxLayout()
-        links_row.setSpacing(6)
-        
-        ff_cal_b = self.btn("📅 Forex Factory Calendar", color=ACC2, height=24)
-        ff_cal_b.clicked.connect(lambda: webbrowser.open("https://www.forexfactory.com/calendar"))
-        ff_cal_b.setToolTip("Open Forex Factory Economic Calendar in browser")
-        
-        ff_news_b = self.btn("📰 Forex Factory News", color=PRI, height=24)
-        ff_news_b.clicked.connect(lambda: webbrowser.open("https://www.forexfactory.com/news"))
-        ff_news_b.setToolTip("Open Forex Factory News page in browser")
-        
-        inv_cal_b = self.btn("📈 Investing.com Calendar", color=GREEN, height=24)
-        inv_cal_b.clicked.connect(lambda: webbrowser.open("https://www.investing.com/economic-calendar/"))
-        inv_cal_b.setToolTip("Open Investing.com Economic Calendar in browser")
-        
-        te_cal_b = self.btn("📊 Trading Economics", color=ACC, height=24)
-        te_cal_b.clicked.connect(lambda: webbrowser.open("https://tradingeconomics.com/calendar"))
-        te_cal_b.setToolTip("Open Trading Economics Calendar in browser")
-        
-        myfx_cal_b = self.btn("🔗 Myfxbook Calendar", color=TEXT_MED, height=24)
-        myfx_cal_b.clicked.connect(lambda: webbrowser.open("https://www.myfxbook.com/forex-economic-calendar"))
-        myfx_cal_b.setToolTip("Open Myfxbook Economic Calendar in browser")
-        
-        links_row.addWidget(ff_cal_b)
-        links_row.addWidget(ff_news_b)
-        links_row.addWidget(inv_cal_b)
-        links_row.addWidget(te_cal_b)
-        links_row.addWidget(myfx_cal_b)
-        links_row.addStretch()
-        
-        links_card_lay.addLayout(links_row)
-        news_tab_lay.addWidget(links_card)
-        
-        # Row 1: News & Economic Calendar
-        top_row = QHBoxLayout()
-        top_row.setSpacing(8)
-        
-        # Left: Live News
-        news_card, news_card_lay = self.card("📰 LIVE FOREX FACTORY NEWS", PRI)
+        news_tab_lay.setSpacing(6)
+
+        # News Table
+        news_card, news_card_lay = self.card("NEWS ◈ LIVE FIN-STREAM", "#ffaa00")
+        news_card.setStyleSheet("background-color: #030303; border: 1px solid #333333; border-radius: 0px;")
         news_hdr_lay = QHBoxLayout()
-        self._news_status_lbl = self.lbl("Polling latest news...", 7, color=TEXT_DIM)
+        self._news_status_lbl = self.lbl("Polling latest news...", 7, color="#888888")
         
-        open_news_btn = self.btn("🌐 Open Site", color=PRI, height=22)
-        open_news_btn.clicked.connect(lambda: webbrowser.open("https://www.forexfactory.com/news"))
-        open_news_btn.setToolTip("Open Forex Factory News page in browser")
-        
-        ref_news_btn = self.btn("↺ Refresh News", color=PRI, height=22)
+        ref_news_btn = self.btn("↺ Feed Sync", color="#ffaa00", height=20)
+        ref_news_btn.setStyleSheet("QPushButton {background: transparent; color: #ffaa00; border: 1px solid #ffaa00; padding: 0 4px;}")
         ref_news_btn.clicked.connect(self._refresh_news)
         
         news_hdr_lay.addWidget(self._news_status_lbl)
         news_hdr_lay.addStretch()
-        news_hdr_lay.addWidget(open_news_btn)
         news_hdr_lay.addWidget(ref_news_btn)
         news_card_lay.addLayout(news_hdr_lay)
         
         self._news_table = QTableWidget(0, 2)
         self._news_table.setHorizontalHeaderLabels(["Source", "Headline"])
         self._style_table(self._news_table)
-        self._news_table.setFixedHeight(180)
+        self._news_table.setFixedHeight(115)
         self._news_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         self._news_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self._news_table.setColumnWidth(0, 110)
+        self._news_table.setColumnWidth(0, 90)
         news_card_lay.addWidget(self._news_table)
-        
-        top_row.addWidget(news_card, stretch=4)
-        
-        # Right: Economic Calendar
-        cal_card, cal_card_lay = self.card("📅 ECONOMIC CALENDAR", ACC2)
+        news_tab_lay.addWidget(news_card)
+
+        # Calendar Table
+        cal_card, cal_card_lay = self.card("CALENDAR ◈ MACROECONOMIC RELEASES", "#ffaa00")
+        cal_card.setStyleSheet("background-color: #030303; border: 1px solid #333333; border-radius: 0px;")
         cal_hdr_lay = QHBoxLayout()
-        self._cal_status_lbl = self.lbl("Today's live high-impact macroeconomic events", 7, color=TEXT_DIM)
-        
-        open_cal_btn = self.btn("🌐 Open Calendar", color=ACC2, height=22)
-        open_cal_btn.clicked.connect(lambda: webbrowser.open("https://www.forexfactory.com/calendar"))
-        open_cal_btn.setToolTip("Open Forex Factory Economic Calendar in browser")
-        
+        self._cal_status_lbl = self.lbl("High-impact events", 7, color="#888888")
         cal_hdr_lay.addWidget(self._cal_status_lbl)
-        cal_hdr_lay.addStretch()
-        cal_hdr_lay.addWidget(open_cal_btn)
         cal_card_lay.addLayout(cal_hdr_lay)
         
         self._cal_table = QTableWidget(0, 7)
@@ -735,7 +1158,7 @@ class Mt5Page(OctoPage):
             "Time", "Curr", "Impact", "Event Details", "Actual", "Forecast", "Previous"
         ])
         self._style_table(self._cal_table)
-        self._cal_table.setFixedHeight(180)
+        self._cal_table.setFixedHeight(115)
         self._cal_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         self._cal_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         self._cal_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
@@ -743,23 +1166,25 @@ class Mt5Page(OctoPage):
         self._cal_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
         self._cal_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)
         self._cal_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.Interactive)
-        self._cal_table.setColumnWidth(0, 60)
+        self._cal_table.setColumnWidth(0, 50)
         self._cal_table.setColumnWidth(1, 40)
         self._cal_table.setColumnWidth(2, 55)
         self._cal_table.setColumnWidth(4, 55)
         self._cal_table.setColumnWidth(5, 55)
         self._cal_table.setColumnWidth(6, 55)
         cal_card_lay.addWidget(self._cal_table)
-        
-        top_row.addWidget(cal_card, stretch=5)
-        news_tab_lay.addLayout(top_row)
-        
-        # Row 2: Ollama Macroeconomic Insights Card
-        ollama_card, ollama_card_lay = self.card("✨ OLLAMA MACROECONOMIC INSIGHTS", GREEN)
+        news_tab_lay.addWidget(cal_card)
+
+        # Ollama Macro Insights
+        ollama_card, ollama_card_lay = self.card("INSIGHTS ◈ OLLAMA AI MACRO SUMMARY", "#ffaa00")
+        ollama_card.setStyleSheet("background-color: #030303; border: 1px solid #333333; border-radius: 0px;")
         ollama_hdr_lay = QHBoxLayout()
-        self._ollama_status_lbl = self.lbl("Ollama: Idle (Gemma model preferred)", 7, color=TEXT_DIM)
-        self._ollama_btn = self.btn("✨ Generate Macro Summary", color=GREEN, height=22)
+        self._ollama_status_lbl = self.lbl("Model: gemma", 7, color="#888888")
+        
+        self._ollama_btn = self.btn("✨ Run Analysis", color="#00ff88", height=20)
+        self._ollama_btn.setStyleSheet("QPushButton {background: transparent; color: #00ff88; border: 1px solid #00ff88; padding: 0 4px;}")
         self._ollama_btn.clicked.connect(lambda: self._generate_ollama_summary())
+        
         ollama_hdr_lay.addWidget(self._ollama_status_lbl)
         ollama_hdr_lay.addStretch()
         ollama_hdr_lay.addWidget(self._ollama_btn)
@@ -767,27 +1192,25 @@ class Mt5Page(OctoPage):
         
         self._ollama_insights_box = QTextEdit()
         self._ollama_insights_box.setReadOnly(True)
-        self._ollama_insights_box.setFixedHeight(220)
-        self._ollama_insights_box.setFont(QFont("Courier New", 8))
-        self._ollama_insights_box.setStyleSheet(f"""
-            QTextEdit {{
-                background: #000d14;
-                color: {WHITE};
-                border: 1px solid {BORDER};
-                border-radius: 4px;
-                padding: 8px;
-            }}
+        self._ollama_insights_box.setFixedHeight(120)
+        self._ollama_insights_box.setFont(QFont("Courier New", 7))
+        self._ollama_insights_box.setStyleSheet("""
+            QTextEdit {
+                background: #000000;
+                color: #ffffff;
+                border: 1px solid #222222;
+                border-radius: 0px;
+                padding: 4px;
+            }
         """)
         self._ollama_insights_box.setPlaceholderText(
-            "Click 'Generate Macro Summary' to have local Ollama analyze current news headlines and macroeconomic calendar events..."
+            "Click Run Analysis to let local Ollama synthesize economic releases and correlated headlines..."
         )
         ollama_card_lay.addWidget(self._ollama_insights_box)
-        
         news_tab_lay.addWidget(ollama_card)
-        
-        self._stacked_w.addWidget(self._news_tab_w)
-        
-        self._dash_lay.addWidget(self._stacked_w)
+
+        split_bottom.addWidget(news_tab_w, stretch=4)
+        self._dash_lay.addLayout(split_bottom)
         
         self._lay.addWidget(self._dash_w)
 
@@ -845,55 +1268,60 @@ class Mt5Page(OctoPage):
         threading.Thread(target=self._load_data_thread, daemon=True).start()
 
     def _load_data_thread(self):
-        from agent.mcp_bridge import call_tool
-        
-        portfolio = None
-        account_err = None
         try:
-            res = call_tool("metatrader5", "get_portfolio_summary", {})
-            if res.startswith("[MCP]"):
-                account_err = res
-            else:
-                portfolio = self._parse_json(res)
-        except Exception as e:
-            account_err = str(e)
-
-        # Fallback to plain account metrics if summary fails but is connected
-        if not portfolio and not account_err:
+            # Quick check if self has been deleted
+            _ = self.objectName()
+            from agent.mcp_bridge import call_tool
+            
+            portfolio = None
+            account_err = None
             try:
-                m_res = call_tool("metatrader5", "get_account_metrics", {})
-                if not m_res.startswith("[MCP]"):
-                    metrics = self._parse_json(m_res)
-                    if metrics and "error" not in metrics:
-                        portfolio = {
-                            "account": metrics,
-                            "open_positions": 0,
-                            "positions": []
-                        }
-            except Exception:
-                pass
+                res = call_tool("metatrader5", "get_portfolio_summary", {})
+                if res.startswith("[MCP]"):
+                    account_err = res
+                else:
+                    portfolio = self._parse_json(res)
+            except Exception as e:
+                account_err = str(e)
 
-        # Load live prices for watchlist
-        prices = []
-        for sym in self._watchlist_symbols:
-            try:
-                res_price = call_tool("metatrader5", "get_live_price", {"symbol": sym})
-                if not res_price.startswith("[MCP]"):
-                    pdata = self._parse_json(res_price)
-                    if pdata and "error" not in pdata:
-                        prices.append(pdata)
+            # Fallback to plain account metrics if summary fails but is connected
+            if not portfolio and not account_err:
+                try:
+                    m_res = call_tool("metatrader5", "get_account_metrics", {})
+                    if not m_res.startswith("[MCP]"):
+                        metrics = self._parse_json(m_res)
+                        if metrics and "error" not in metrics:
+                            portfolio = {
+                                "account": metrics,
+                                "open_positions": 0,
+                                "positions": []
+                            }
+                except Exception:
+                    pass
+
+            # Load live prices for watchlist
+            prices = []
+            for sym in self._watchlist_symbols:
+                try:
+                    res_price = call_tool("metatrader5", "get_live_price", {"symbol": sym})
+                    if not res_price.startswith("[MCP]"):
+                        pdata = self._parse_json(res_price)
+                        if pdata and "error" not in pdata:
+                            prices.append(pdata)
+                        else:
+                            prices.append({"symbol": sym, "error": True})
                     else:
                         prices.append({"symbol": sym, "error": True})
-                else:
+                except Exception:
                     prices.append({"symbol": sym, "error": True})
-            except Exception:
-                prices.append({"symbol": sym, "error": True})
 
-        self._status_sig.emit({
-            "portfolio": portfolio,
-            "prices": prices,
-            "error": account_err
-        })
+            self._status_sig.emit({
+                "portfolio": portfolio,
+                "prices": prices,
+                "error": account_err
+            })
+        except RuntimeError:
+            return
 
     def _on_status_updated(self, data: dict):
         portfolio = data["portfolio"]
@@ -1132,6 +1560,9 @@ class Mt5Page(OctoPage):
         from agent.mcp_bridge import call_tool
         import json
         try:
+            # Check if self has been deleted
+            _ = self.objectName()
+            
             news_str = json.dumps(self._current_news) if self._current_news else "[]"
             cal_str = json.dumps(self._current_calendar) if self._current_calendar else "[]"
             res = call_tool("metatrader5", "get_trading_suggestion", {
@@ -1141,13 +1572,22 @@ class Mt5Page(OctoPage):
                 "calendar_json": cal_str
             })
             sug = self._parse_json(res)
+            
+            # Recheck if deleted before emit
+            _ = self.objectName()
             if sug and isinstance(sug, dict):
                 sug["_scan_symbol"] = symbol
                 self._auto_scan_sig.emit(sug)
             else:
                 self._auto_scan_sig.emit({"_scan_symbol": symbol, "error": res})
+        except RuntimeError:
+            return
         except Exception as e:
-            self._auto_scan_sig.emit({"_scan_symbol": symbol, "error": str(e)})
+            try:
+                _ = self.objectName()
+                self._auto_scan_sig.emit({"_scan_symbol": symbol, "error": str(e)})
+            except RuntimeError:
+                return
 
     def _on_auto_scan_received(self, sug: dict):
         if not self._auto_scan_active:
@@ -1201,6 +1641,9 @@ class Mt5Page(OctoPage):
         from agent.mcp_bridge import call_tool
         import json
         try:
+            # Check if self has been deleted
+            _ = self.objectName()
+            
             news_str = json.dumps(self._current_news) if self._current_news else "[]"
             cal_str = json.dumps(self._current_calendar) if self._current_calendar else "[]"
             res = call_tool("metatrader5", "get_trading_suggestion", {
@@ -1210,12 +1653,21 @@ class Mt5Page(OctoPage):
                 "calendar_json": cal_str
             })
             sug = self._parse_json(res)
+            
+            # Recheck if deleted before emit
+            _ = self.objectName()
             if sug and isinstance(sug, dict):
                 self._suggestion_sig.emit(sug)
             else:
                 self._suggestion_sig.emit({"error": res})
+        except RuntimeError:
+            return
         except Exception as e:
-            self._suggestion_sig.emit({"error": str(e)})
+            try:
+                _ = self.objectName()
+                self._suggestion_sig.emit({"error": str(e)})
+            except RuntimeError:
+                return
 
     def _on_suggestion_received(self, sug: dict):
         self._ai_btn.setEnabled(True)
@@ -1406,14 +1858,26 @@ class Mt5Page(OctoPage):
     def _get_timesfm_forecast_thread(self, symbol: str, timeframe: str):
         from agent.mcp_bridge import call_tool
         try:
+            # Check if self has been deleted
+            _ = self.objectName()
+            
             res = call_tool("metatrader5", "forecast_price_trend", {"symbol": symbol, "timeframe": timeframe, "horizon": 24})
             fc = self._parse_json(res)
+            
+            # Recheck if deleted before emit
+            _ = self.objectName()
             if fc and isinstance(fc, dict):
                 self._timesfm_sig.emit(fc)
             else:
                 self._timesfm_sig.emit({"error": res})
+        except RuntimeError:
+            return
         except Exception as e:
-            self._timesfm_sig.emit({"error": str(e)})
+            try:
+                _ = self.objectName()
+                self._timesfm_sig.emit({"error": str(e)})
+            except RuntimeError:
+                return
 
     def _on_timesfm_received(self, data: dict):
         self._ai_btn.setEnabled(True)
@@ -1623,12 +2087,16 @@ class Mt5Page(OctoPage):
         except Exception as e:
             cal_err = str(e)
             
-        self._news_sig.emit({
-            "news": news_items,
-            "calendar": calendar_events,
-            "news_error": news_err,
-            "calendar_error": cal_err
-        })
+        try:
+            _ = self.objectName()
+            self._news_sig.emit({
+                "news": news_items,
+                "calendar": calendar_events,
+                "news_error": news_err,
+                "calendar_error": cal_err
+            })
+        except RuntimeError:
+            return
 
     def _on_news_received(self, data: dict):
         news = data["news"]
@@ -1719,97 +2187,109 @@ class Mt5Page(OctoPage):
         import requests
         from memory.config_manager import load_api_keys
         
-        cfg = load_api_keys()
-        url = cfg.get("ollama_base_url", "http://localhost:11434")
-        cfg_model = cfg.get("ollama_model", "")
-        if "  [" in cfg_model:
-            cfg_model = cfg_model.split("  [")[0]
-        elif " [" in cfg_model:
-            cfg_model = cfg_model.split(" [")[0]
-        cfg_model = cfg_model.strip()
-        
-        # 1. Query available models
-        model = None
-        available_models = []
         try:
-            r = requests.get(f"{url}/api/tags", timeout=3)
-            if r.ok:
-                available_models = [m["name"] for m in r.json().get("models", [])]
-        except Exception:
-            pass
+            # Check if self has been deleted
+            _ = self.objectName()
             
-        # Determine best model
-        if available_models:
-            # First choice: gemma4:e2b or any gemma variant
-            gemma_models = [m for m in available_models if "gemma" in m.lower()]
-            if gemma_models:
-                model = gemma_models[0]
-            elif cfg_model in available_models:
-                model = cfg_model
-            else:
-                model = available_models[0]
+            cfg = load_api_keys()
+            url = cfg.get("ollama_base_url", "http://localhost:11434")
+            cfg_model = cfg.get("ollama_model", "")
+            if "  [" in cfg_model:
+                cfg_model = cfg_model.split("  [")[0]
+            elif " [" in cfg_model:
+                cfg_model = cfg_model.split(" [")[0]
+            cfg_model = cfg_model.strip()
+            
+            # 1. Query available models
+            model = None
+            available_models = []
+            try:
+                r = requests.get(f"{url}/api/tags", timeout=3)
+                if r.ok:
+                    available_models = [m["name"] for m in r.json().get("models", [])]
+            except Exception:
+                pass
                 
-        if not model:
-            self._ollama_sig.emit({
-                "error": "Ollama is not running, or no models are downloaded. Start Ollama and pull a model (e.g., 'ollama pull gemma3:4b')."
-            })
-            return
-            
-        # 2. Formulate Prompt
-        prompt = (
-            "You are a professional financial analyst and macroeconomic strategist. "
-            "Please analyze the following live market news headlines and upcoming economic calendar events "
-            "and provide a concise, high-impact macroeconomic summary (max 300 words). "
-            "Format the response using bullet points, including a brief 'Risk Assessment' and 'Trading Implications'.\n\n"
-            "=== LIVE MARKET NEWS ===\n"
-        )
-        # Filter and limit news items to top 5
-        news_items = self._current_news[:5] if self._current_news else []
-        if news_items:
-            for item in news_items:
-                prompt += f"- [{item.get('source', 'News')}] {item.get('title', '')}\n"
-        else:
-            prompt += "(No live news available at the moment.)\n"
-            
-        prompt += "\n=== UPCOMING MACROECONOMIC CALENDAR EVENTS ===\n"
-        # Prioritize High/Medium impact calendar events, falling back to Low to show exactly top 5 relevant events
-        calendar_items = []
-        if self._current_calendar:
-            high_med = [ev for ev in self._current_calendar if str(ev.get('impact', '')).lower() in ['high', 'medium']]
-            lows = [ev for ev in self._current_calendar if str(ev.get('impact', '')).lower() not in ['high', 'medium']]
-            calendar_items = (high_med + lows)[:5]
-            
-        if calendar_items:
-            for ev in calendar_items:
-                prompt += f"- Time: {ev.get('time', '--')}, Currency: {ev.get('currency', '--')}, Impact: {ev.get('impact', 'Low')}, Event: {ev.get('event', '')}, Actual: {ev.get('actual', '--')}, Forecast: {ev.get('forecast', '--')}, Previous: {ev.get('previous', '--')}\n"
-        else:
-            prompt += "(No calendar events scheduled for today.)\n"
-            
-        prompt += "\nProvide the analytical summary now:"
-        
-        # 3. Call Ollama
-        try:
-            payload = {
-                "model": model,
-                "prompt": prompt,
-                "stream": False
-            }
-            resp = requests.post(f"{url}/api/generate", json=payload, timeout=180)
-            if resp.status_code == 200:
-                res_data = resp.json()
-                summary = res_data.get("response", "")
+            # Determine best model
+            if available_models:
+                # First choice: gemma4:e2b or any gemma variant
+                gemma_models = [m for m in available_models if "gemma" in m.lower()]
+                if gemma_models:
+                    model = gemma_models[0]
+                elif cfg_model in available_models:
+                    model = cfg_model
+                else:
+                    model = available_models[0]
+                    
+            _ = self.objectName()
+            if not model:
                 self._ollama_sig.emit({
-                    "model": model,
-                    "summary": summary
+                    "error": "Ollama is not running, or no models are downloaded. Start Ollama and pull a model (e.g., 'ollama pull gemma3:4b')."
                 })
+                return
+                
+            # 2. Formulate Prompt
+            prompt = (
+                "You are a professional financial analyst and macroeconomic strategist. "
+                "Please analyze the following live market news headlines and upcoming economic calendar events "
+                "and provide a concise, high-impact macroeconomic summary (max 300 words). "
+                "Format the response using bullet points, including a brief 'Risk Assessment' and 'Trading Implications'.\n\n"
+                "=== LIVE MARKET NEWS ===\n"
+            )
+            # Filter and limit news items to top 5
+            news_items = self._current_news[:5] if self._current_news else []
+            if news_items:
+                for item in news_items:
+                    prompt += f"- [{item.get('source', 'News')}] {item.get('title', '')}\n"
             else:
-                self._ollama_sig.emit({
-                    "error": f"HTTP {resp.status_code} from Ollama server."
-                })
-        except Exception as e:
-            self._ollama_sig.emit({
-                "error": f"Connection error: {e}"
-            })
+                prompt += "(No live news available at the moment.)\n"
+                
+            prompt += "\n=== UPCOMING MACROECONOMIC CALENDAR EVENTS ===\n"
+            # Prioritize High/Medium impact calendar events, falling back to Low to show exactly top 5 relevant events
+            calendar_items = []
+            if self._current_calendar:
+                high_med = [ev for ev in self._current_calendar if str(ev.get('impact', '')).lower() in ['high', 'medium']]
+                lows = [ev for ev in self._current_calendar if str(ev.get('impact', '')).lower() not in ['high', 'medium']]
+                calendar_items = (high_med + lows)[:5]
+                
+            if calendar_items:
+                for ev in calendar_items:
+                    prompt += f"- Time: {ev.get('time', '--')}, Currency: {ev.get('currency', '--')}, Impact: {ev.get('impact', 'Low')}, Event: {ev.get('event', '')}, Actual: {ev.get('actual', '--')}, Forecast: {ev.get('forecast', '--')}, Previous: {ev.get('previous', '--')}\n"
+            else:
+                prompt += "(No calendar events scheduled for today.)\n"
+                
+            prompt += "\nProvide the analytical summary now:"
+            
+            # 3. Call Ollama
+            try:
+                payload = {
+                    "model": model,
+                    "prompt": prompt,
+                    "stream": False
+                }
+                resp = requests.post(f"{url}/api/generate", json=payload, timeout=180)
+                _ = self.objectName()
+                if resp.status_code == 200:
+                    res_data = resp.json()
+                    summary = res_data.get("response", "")
+                    self._ollama_sig.emit({
+                        "model": model,
+                        "summary": summary
+                    })
+                else:
+                    self._ollama_sig.emit({
+                        "error": f"HTTP {resp.status_code} from Ollama server."
+                    })
+            except Exception as e:
+                try:
+                    _ = self.objectName()
+                    self._ollama_sig.emit({
+                        "error": f"Connection error: {e}"
+                    })
+                except RuntimeError:
+                    return
+        except RuntimeError:
+            return
 
     def _on_ollama_insight_received(self, data: dict):
         self._ollama_generating = False

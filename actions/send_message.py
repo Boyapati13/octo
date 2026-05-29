@@ -150,10 +150,73 @@ def _desktop_send(app_name: str, receiver: str, message: str) -> str:
     return f"Message sent to {receiver} via {app_name}."
 
 def _send_whatsapp(receiver: str, message: str) -> str:
-    return _desktop_send("WhatsApp", receiver, message)
+    # Attempt to send via native Node.js bridge API
+    try:
+        import requests, os, json
+        from pathlib import Path
+        
+        # Handle self-chat alias
+        if receiver.lower() in ("you", "me", "myself", "test"):
+            # Try to read from gateway config first
+            gw_file = Path(__file__).parent.parent / "config" / "gateway.json"
+            if gw_file.exists():
+                gw_config = json.loads(gw_file.read_text(encoding="utf-8"))
+                allowed = gw_config.get("whatsapp", {}).get("allowed_users", "")
+                if allowed and allowed != "*":
+                    receiver = allowed.split(",")[0].strip()
+            
+            # Fallback to session creds
+            if receiver.lower() in ("you", "me", "myself", "test"):
+                try:
+                    creds_path = os.path.expanduser("~/.octo/whatsapp/session/creds.json")
+                    with open(creds_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        receiver = data["me"]["id"].split(":")[0] + "@s.whatsapp.net"
+                except Exception:
+                    pass
+                
+        # Format raw phone numbers
+        chat_id = receiver
+        if "@" not in chat_id and chat_id.replace("+","").isdigit():
+            chat_id = chat_id.replace("+", "") + "@s.whatsapp.net"
+            
+        resp = requests.post("http://127.0.0.1:3005/send", json={"chatId": chat_id, "message": message}, timeout=10)
+        if resp.status_code == 200:
+            return f"Message silently sent via native API to {chat_id}."
+        return f"Failed to send via paired WhatsApp API (HTTP {resp.status_code})."
+    except Exception as e:
+        return f"Failed to send via paired WhatsApp API ({e}). Is the WhatsApp bridge running?"
 
 def _send_telegram(receiver: str, message: str) -> str:
-    return _desktop_send("Telegram", receiver, message)
+    try:
+        import requests, json
+        from pathlib import Path
+        gw_file = Path(__file__).parent.parent / "config" / "gateway.json"
+        
+        token = None
+        chat_id = receiver
+        
+        if gw_file.exists():
+            gw_config = json.loads(gw_file.read_text(encoding="utf-8"))
+            telegram_cfg = gw_config.get("telegram", {})
+            token = telegram_cfg.get("token")
+            # Handle self-chat alias
+            if chat_id.lower() in ("you", "me", "myself", "test"):
+                allowed = telegram_cfg.get("allowed_users", "")
+                if allowed:
+                    chat_id = allowed.split(",")[0].strip()
+                    
+        if not token:
+            return "Failed to send via paired Telegram API: No token configured in gateway.json."
+            
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        resp = requests.post(url, json={"chat_id": chat_id, "text": message}, timeout=10)
+        if resp.status_code == 200:
+            return f"Message silently sent via native API to {chat_id}."
+            
+        return f"Failed to send via paired Telegram API (HTTP {resp.status_code}): {resp.text}"
+    except Exception as e:
+        return f"Failed to send via paired Telegram API ({e})."
 
 def _send_signal(receiver: str, message: str) -> str:
     return _desktop_send("Signal", receiver, message)

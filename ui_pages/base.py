@@ -37,10 +37,10 @@ class OctoPage(QWidget):
 
     # ── shared widget factories ───────────────────────────────────────────────
     @staticmethod
-    def lbl(text: str, size: int = 8, bold: bool = False,
+    def lbl(text: str, size: float = 8, bold: bool = False,
             color: str = TEXT, wrap: bool = False) -> QLabel:
         w = QLabel(text)
-        w.setFont(QFont("Courier New", size,
+        w.setFont(QFont("Courier New", int(size),
                         QFont.Weight.Bold if bold else QFont.Weight.Normal))
         w.setStyleSheet(f"color: {color}; background: transparent;")
         w.setWordWrap(wrap)

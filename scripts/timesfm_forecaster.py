@@ -293,7 +293,7 @@ class TimesFMForecaster:
         # Positive → bullish skew, negative → bearish skew
         skew = (mid - last_close) / width  # typically –0.5 … +0.5
 
-        if abs(pct_change) < 0.001:          # less than 0.1 % move → neutral
+        if abs(pct_change) < 0.0005:         # less than 0.05 % move → neutral (was 0.001)
             bias = ForecastBias.NEUTRAL
             conf = 0.50
         elif pct_change > 0:
@@ -443,6 +443,22 @@ class TimesFMForecaster:
             print(f"[TimesFM] Signal written → {path}")
         except Exception as e:
             print(f"[TimesFM] Failed to write signal file: {e}")
+
+    @staticmethod
+    def _write_per_symbol_signal(result: ForecastResult):
+        """Writes a per-symbol signal file (timesfm_{symbol}.json) so that
+        TradingRiskManager._read_signal() can find the correct forecast for each
+        symbol independently. Fixes the bug where all symbols overwrote the same file.
+        """
+        base = (_MT5_COMMON_FILES if _MT5_COMMON_FILES.exists() else _SCRIPT_DIR)
+        safe_sym = result.symbol.replace("+", "plus").replace("/", "_")
+        per_sym_path = base / f"timesfm_{safe_sym}.json"
+        try:
+            with open(per_sym_path, "w", encoding="utf-8") as f:
+                json.dump(result.to_dict(), f, indent=2)
+            print(f"[TimesFM] Per-symbol signal → {per_sym_path.name}")
+        except Exception as e:
+            print(f"[TimesFM] Failed to write per-symbol signal for {result.symbol}: {e}")
 
     # ── Batch forecast for the full portfolio ─────────────────────────────────
     def forecast_portfolio(
