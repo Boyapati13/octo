@@ -169,7 +169,7 @@ class HybridTradingBot:
         
         # Portfolio Mappings
         self.forex_symbols = ["EURUSD+", "GBPUSD+"]
-        self.volume_symbols = ["NAS100", "XAUUSD+"]
+        self.volume_symbols = ["NAS100", "XAUUSD+", "BTCUSD", "BTCUSD+"]
         self.all_symbols = self.forex_symbols + self.volume_symbols
         
         # ── G4: TimesFM Risk Manager ──────────────────────────────────────────
@@ -1656,11 +1656,20 @@ def main():
     
     bot = HybridTradingBot()
     
+    # ── Start Live Volume Profile Background Service ───────────────────────────
+    try:
+        from volume_profile_service import start_background as _vp_start
+        _vp_start()
+        print("[Bot] [VP Service] Live Volume Profile engine started (30s refresh cycle)")
+    except Exception as _vp_err:
+        print(f"[Bot] [VP Service] WARNING: Could not start VP service: {_vp_err}")
+    
     # 24/7 Resilient Reconnection Loop
     print("[Bot] Production loop started. Entering persistent 24/7 state machine...")
     print(f"[Bot] [G4] Gate mode: {bot.risk_manager.gate_mode} | "
           f"Min confidence: {bot.risk_manager.min_conf*100:.0f}%")
     print("[Bot] [G4] To change mode: bot.risk_manager.set_mode('BLOCK') etc.")
+
     
     try:
         while True:

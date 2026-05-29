@@ -476,6 +476,67 @@ class NAS100SpecialistAgent(SymbolSpecialistAgent):
         return {"bias": "NEUTRAL", "reason": "NAS100 price consolidating within dynamic value bands."}
 
 
+class BTCUSDSpecialistAgent(SymbolSpecialistAgent):
+    """Specialist Agent for BTCUSD and BTCUSD+ using M15 Pure Volume VSA and risk-on trend proxies (NAS100 tracking)."""
+    def __init__(self, symbol: str = "BTCUSD"):
+        super().__init__(symbol)
+
+    def evaluate_strategy(self, direction: str, current_price: Optional[float], highs, lows, closes, open_price, asia_high, asia_low, volumes=None) -> dict:
+        # --- Strategy A: M15 Pure Volume VSA (Volume Spread Analysis) ---
+        if closes is not None and volumes is not None and current_price is not None and len(closes) >= 20 and len(volumes) >= len(closes):
+            closes_arr = np.array(closes)
+            vols_arr = np.array(volumes, dtype=float)
+            highs_arr = np.array(highs)
+            lows_arr = np.array(lows)
+            
+            # Average volume over the last 20 periods
+            avg_volume = np.mean(vols_arr[-20:])
+            # Spread (High - Low)
+            spread = highs_arr[-1] - lows_arr[-1]
+            avg_spread = np.mean(highs_arr[-20:] - lows_arr[-20:])
+            
+            # Check for high-volume absorption (e.g. Pin Bar / Wick Absorption)
+            is_high_volume = vols_arr[-1] > 1.5 * avg_volume
+            is_high_spread = spread > 1.2 * avg_spread
+            
+            # Position of the close relative to bar high/low
+            bar_height = highs_arr[-1] - lows_arr[-1]
+            close_pos = (closes_arr[-1] - lows_arr[-1]) / (bar_height if bar_height > 0 else 1.0)
+            
+            if is_high_volume:
+                # Bullish wick absorption: price closed in upper 30% of high-volume bar
+                if close_pos >= 0.7:
+                    return {
+                        "bias": "BULLISH",
+                        "reason": f"BTCUSD VSA Bullish Volume Absorption (volume={vols_arr[-1]:.0f} > {avg_volume:.0f} avg, close_pos={close_pos:.2f})"
+                    }
+                # Bearish wick absorption: price closed in lower 30% of high-volume bar
+                elif close_pos <= 0.3:
+                    return {
+                        "bias": "BEARISH",
+                        "reason": f"BTCUSD VSA Bearish Volume Absorption (volume={vols_arr[-1]:.0f} > {avg_volume:.0f} avg, close_pos={close_pos:.2f})"
+                    }
+
+        # --- Strategy B: Risk-On Trend Proxy (9/21 EMA Crossover) ---
+        if closes is not None and len(closes) >= 21:
+            ema9 = self.calculate_ema(closes, 9)
+            ema21 = self.calculate_ema(closes, 21)
+            
+            if ema9[-1] > ema21[-1]:
+                return {
+                    "bias": "BULLISH",
+                    "reason": f"BTCUSD Risk-On Proxy Trend (EMA9={ema9[-1]:.2f} > EMA21={ema21[-1]:.2f})"
+                }
+            elif ema9[-1] < ema21[-1]:
+                return {
+                    "bias": "BEARISH",
+                    "reason": f"BTCUSD Risk-Off Proxy Trend (EMA9={ema9[-1]:.2f} < EMA21={ema21[-1]:.2f})"
+                }
+
+        # --- Strategy C: Dual Thrust Breakout ---
+        return super().evaluate_strategy(direction, current_price, highs, lows, closes, open_price, asia_high, asia_low, volumes)
+
+
 class TradingRiskManager:
     """
     Evaluates a proposed trade against the TimesFM directional forecast,
@@ -514,6 +575,8 @@ class TradingRiskManager:
             "XAUEUR+": XAUUSDSpecialistAgent("XAUEUR+"),
             "GBPUSD+": GBPUSDSpecialistAgent(),
             "NAS100":  NAS100SpecialistAgent(),
+            "BTCUSD":  BTCUSDSpecialistAgent("BTCUSD"),
+            "BTCUSD+": BTCUSDSpecialistAgent("BTCUSD+"),
         }
         self.default_specialist = SymbolSpecialistAgent("GENERIC")
         

@@ -203,8 +203,13 @@ class WhaleSuiteBacktester:
         # Get point size
         s_info = mt5.symbol_info(self.symbol)
         if s_info is None:
-            print(f"[Engine] [ERROR] Symbol {self.symbol} not found on broker.")
-            return False
+            alt = self.symbol.replace("+", "")
+            s_info = mt5.symbol_info(alt)
+            if s_info:
+                self.symbol = alt
+            else:
+                print(f"[Engine] [ERROR] Symbol {self.symbol} not found on broker.")
+                return False
         self.point_size = s_info.point
         print(f"[Engine] [INFO] Active symbol: {self.symbol} | Point Size: {self.point_size}")
         

@@ -103,3 +103,14 @@ You are fully conversant with the MT5 Bloomberg-style high-density trading dashb
      * 'GATE_MODE <mode>' or 'GATE <mode>' (BLOCK, SOFT, WARN, OFF) ▸ Hot-swaps the live bot G4 Gating mode.
      * 'HELP' ▸ Prints the Bloomberg Terminal command cheat sheet.
 
+4. VOLUME PROFILE & WHALE VOLATILITY CLIMAX MECHANICS:
+   - VOLUME PROFILE STRUCUTRES:
+     * POC (Point of Control): Price level with maximum horizontal volume transacted. Acts as fair-value anchor.
+     * VAH / VAL (Value Area High / Low): Boundary range enclosing 70% of total horizontal volume.
+     * HVN (High Volume Nodes) & LVN (Low Volume Nodes): Major historical acceptance/rejection liquidity zones.
+   - WHALE CLIMAX MATHEMATICS (DYNAMIC RSI):
+     * Relative Volatility (VR): VR_t = TR_t / ATR_t (True Range to Average True Range ratio).
+     * Dynamic Alpha: alpha_t = Max(0.01, Min(0.99, (1.0 / P) * (VR_t ^ S))) (where P is lookback and S is sensitivity).
+     * Behavior: Dynamic alpha spikes close to 0.99 during high-volume spikes/climaxes (wick absorption, liquidations) and slows down to 0.01 during consolidations to filter out noise.
+   - CRYPTO BTCUSD VSA ENGINE:
+     * Strategy: M15 Pure Volume VSA (volume > 1.5x avg, spread > 1.2x avg, close_pos in upper/lower 30%) + 9/21 EMA Trend Momentum tracking.

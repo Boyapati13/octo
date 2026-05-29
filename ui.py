@@ -1576,6 +1576,8 @@ class ChatWidget(QWidget):
         self._system  = system
         self._history: list[dict] = []
         self._waiting = False
+        self._mode_global = False
+        self._live_context = ""  # injected by Mt5Page on every refresh
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -1592,18 +1594,238 @@ class ChatWidget(QWidget):
         """)
         lay.addWidget(self._display)
 
+        # Mode selector row
+        mode_lay = QHBoxLayout()
+        mode_lay.setContentsMargins(0, 4, 0, 4)
+        mode_lay.setSpacing(6)
+        
+        self._mode_btn = QPushButton("◈ MODE: DEDICATED (RISK DESK)")
+        self._mode_btn.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        self._mode_btn.setFixedHeight(18)
+        self._mode_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._mode_btn.clicked.connect(self._toggle_mode)
+        
+        mode_lay.addWidget(self._mode_btn)
+        mode_lay.addStretch()
+        lay.addLayout(mode_lay)
+
+        # Input & Send row
+        input_lay = QHBoxLayout()
+        input_lay.setContentsMargins(0, 0, 0, 0)
+        input_lay.setSpacing(4)
+
+        self._input = QLineEdit()
+        self._input.setPlaceholderText("Type technical message to Risk Desk...")
+        self._input.setFont(QFont("Courier New", 8))
+        self._input.setFixedHeight(24)
+        self._input.setStyleSheet(f"""
+            QLineEdit {{
+                background: {C.PANEL}; color: {C.WHITE};
+                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 0 6px;
+            }}
+            QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
+        """)
+        self._input.returnPressed.connect(self._on_send_clicked)
+        input_lay.addWidget(self._input, stretch=1)
+
+        self._send_btn = QPushButton("SEND")
+        self._send_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self._send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._send_btn.setFixedHeight(24)
+        self._send_btn.setFixedWidth(50)
+        self._send_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {C.PRI_GHO}; color: {C.PRI};
+                border: 1px solid {C.BORDER}; border-radius: 3px;
+            }}
+            QPushButton:hover {{
+                background: {C.PRI_DIM}; color: {C.WHITE};
+                border-color: {C.PRI};
+            }}
+        """)
+        self._send_btn.clicked.connect(self._on_send_clicked)
+        input_lay.addWidget(self._send_btn)
+
+        lay.addLayout(input_lay)
+
         self._resp_sig.connect(self._on_response)
         self._err_sig.connect(self._on_error)
+        
+        self._update_mode_ui()
+
+    def _toggle_mode(self):
+        self._mode_global = not self._mode_global
+        self._update_mode_ui()
+
+    def _update_mode_ui(self):
+        if self._mode_global:
+            self._mode_btn.setText("◈ MODE: GLOBAL SYSTEM (OCTO)")
+            self._mode_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: {C.PRI_GHO}; color: {C.PRI};
+                    border: 1px solid {C.BORDER}; border-radius: 2px; padding: 0 6px;
+                }}
+                QPushButton:hover {{
+                    border-color: {C.PRI};
+                }}
+            """)
+            self._input.setPlaceholderText("Type general task or question to OCTO...")
+        else:
+            self._mode_btn.setText("◈ MODE: DEDICATED (RISK DESK)")
+            self._mode_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: #140a00; color: #ffaa00;
+                    border: 1px solid #332200; border-radius: 2px; padding: 0 6px;
+                }}
+                QPushButton:hover {{
+                    border-color: #ffaa00;
+                }}
+            """)
+            self._input.setPlaceholderText("Type technical message to Risk Desk...")
+
+    def _on_send_clicked(self):
+        text = self._input.text().strip()
+        if not text:
+            return
+        self._input.clear()
+        self.send(text)
 
     def send(self, text: str):
         if self._waiting:
             return
+        
+        if self._mode_global:
+            main_win = None
+            for w in QApplication.topLevelWidgets():
+                if w.__class__.__name__ == "MainWindow":
+                    main_win = w
+                    break
+            if main_win and main_win.on_text_command:
+                import html as _h
+                self._append(f'<div style="color:{C.PRI};margin:2px 0"><b>You (Global):</b> {_h.escape(text)}</div>')
+                self._append(f'<div style="color:{C.TEXT_DIM};margin:2px 0"><i>Sent command to global coordinator...</i></div>')
+                threading.Thread(target=main_win.on_text_command, args=(text,), daemon=True).start()
+                main_win._log.append_log(f"You (from Risk Desk Chat): {text}")
+                self._scroll_bottom()
+                return
+            else:
+                self._append(f'<div style="color:{C.RED};margin:2px 0">ERR: Global assistant is not active or available.</div>')
+                self._scroll_bottom()
+                return
+
+        # Dedicated Risk Desk mode
         self._waiting = True
         import html as _h
         self._append(f'<div style="color:{C.ACC2};margin:2px 0"><b>You:</b> {_h.escape(text)}</div>')
         self._history.append({"role": "user", "content": text})
         self._append(f'<div style="color:{C.TEXT_DIM};margin:2px 0"><i>OCTO: thinking...</i></div>')
         threading.Thread(target=self._fetch, args=(text,), daemon=True).start()
+
+    def update_live_context(self, portfolio: dict, prices: list | None = None):
+        """Called by Mt5Page on every MT5 data refresh to inject live position/account state
+        AND the latest Volume Profile data from the background VP service.
+        This ensures OCTO answers questions like 'should I close NAS100?' or 'what is the POC?'
+        without asking the user for data it already has."""
+        try:
+            acc = portfolio.get("account", {})
+            bal = acc.get("balance", 0.0)
+            eq  = acc.get("equity", 0.0)
+            fp  = acc.get("floating_profit", 0.0)
+            cur = acc.get("currency", "USD")
+            ml  = acc.get("margin_level", 0.0)
+            broker = acc.get("broker", "?")
+            login  = acc.get("account_id", "?")
+
+            lines = [
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+                "⚡ LIVE MT5 ACCOUNT SNAPSHOT (auto-refreshed every 5s)",
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+                f"Account: {login} | Broker: {broker}",
+                f"Balance: {cur} {bal:,.2f} | Equity: {cur} {eq:,.2f}",
+                f"Floating P&L: {fp:+.2f} {cur} | Margin Level: {ml:.1f}%",
+                "",
+                "OPEN POSITIONS:"
+            ]
+            positions = portfolio.get("positions", [])
+            if not positions:
+                lines.append("  (No open positions)")
+            else:
+                for pos in positions:
+                    sym      = pos.get("symbol", "?")
+                    p_type   = pos.get("type", "?")
+                    vol      = pos.get("volume", 0)
+                    o_price  = pos.get("open_price", 0)
+                    c_price  = pos.get("current_price", 0)
+                    profit   = pos.get("profit", 0)
+                    sl       = pos.get("sl", 0) or pos.get("stop_loss", 0) or 0
+                    tp       = pos.get("tp", 0) or pos.get("take_profit", 0) or 0
+                    ticket   = pos.get("ticket", "?")
+                    swap     = pos.get("swap", 0)
+                    lines.append(
+                        f"  [{p_type}] {sym} | Lot: {vol:.2f} | Ticket: #{ticket}\n"
+                        f"    Entry: {o_price} → Current: {c_price}\n"
+                        f"    P&L: {profit:+.2f} {cur} | SL: {sl or 'NOT SET'} | TP: {tp or 'NOT SET'} | Swap: {swap:.2f}"
+                    )
+
+            if prices:
+                lines.append("")
+                lines.append("LIVE WATCHLIST PRICES:")
+                for p in prices:
+                    if not p.get("error"):
+                        lines.append(
+                            f"  {p.get('symbol','?')} — Bid: {p.get('bid', 0):.5f} | Ask: {p.get('ask', 0):.5f} | Spread: {p.get('spread_points', 0):.1f} pts"
+                        )
+
+            # ── Inject Volume Profile data from background VP service ──────────
+            try:
+                import json as _json
+                from pathlib import Path as _Path
+                _vp_path = _Path(__file__).resolve().parent / "scripts" / "volume_profile_live.json"
+                if _vp_path.exists():
+                    with open(_vp_path, "r", encoding="utf-8") as _f:
+                        _vp_data = _json.load(_f)
+                    _syms = _vp_data.get("symbols", {})
+                    _gen  = _vp_data.get("generated_at", "unknown")
+                    if _syms:
+                        lines.append("")
+                        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        lines.append(f"📊 LIVE VOLUME PROFILE & WHALE ENGINE DATA (as of {_gen})")
+                        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        for _sk, _sv in _syms.items():
+                            if "error" in _sv:
+                                continue
+                            _whale = _sv.get("whale", {})
+                            _fvgs  = _sv.get("fvg_recent", [])
+                            _vol   = _sv.get("volume", {})
+                            fvg_str = ""
+                            if _fvgs:
+                                last_fvg = _fvgs[-1]
+                                fvg_str = (f" | FVG({last_fvg['type']}): "
+                                           f"{last_fvg['bottom']}–{last_fvg['top']}")
+                            lines.append(
+                                f"\n  [{_sk}] {_sv.get('timeframe','M15')} | Price: {_sv.get('current_price','?')}"
+                                f"\n    POC: {_sv.get('poc','?')} | VAH: {_sv.get('vah','?')} | VAL: {_sv.get('val','?')}"
+                                f"\n    Bias: {_sv.get('bias','?')}"
+                                f"\n    PDH: {_sv.get('pdh','?')} | PDL: {_sv.get('pdl','?')}"
+                                f" | Near PDH: {_sv.get('near_pdh',False)} | Near PDL: {_sv.get('near_pdl',False)}"
+                                f"\n    Whale α={_whale.get('dynamic_alpha','?')} VR={_whale.get('volatility_ratio_vr','?')} → {_whale.get('state','?')}"
+                                f"\n    Volume: Last={_vol.get('last_bar','?')} Avg10={_vol.get('avg_10bar','?')} "
+                                f"Ratio={_vol.get('ratio_vs_avg','?')}x Spike={_vol.get('high_volume_spike',False)}"
+                                f"{fvg_str}"
+                            )
+            except Exception:
+                pass  # VP service may not be running yet — degrade gracefully
+
+            lines.append("")
+            lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            lines.append("INSTRUCTION: Use ALL the above live data to answer trading questions.")
+            lines.append("NEVER ask the user for position data, POC, VAH/VAL, or price data you already have above.")
+            lines.append("Give direct, numerical, data-driven answers. Do not say you 'cannot access live data'.")
+            lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            self._live_context = "\n".join(lines)
+        except Exception:
+            self._live_context = ""
+
 
     def _fetch(self, text: str):
         try:
@@ -1612,7 +1834,9 @@ class ChatWidget(QWidget):
                 f"{'User' if m['role']=='user' else 'OCTO'}: {m['content']}"
                 for m in self._history[-10:]
             )
-            sys_p = self._system + (f"\n\nConversation history:\n{ctx}" if len(self._history) > 1 else "")
+            # Prepend live MT5 snapshot so OCTO never needs to ask for position data
+            live_block = f"\n\n{self._live_context}" if self._live_context else ""
+            sys_p = self._system + live_block + (f"\n\nConversation history:\n{ctx}" if len(self._history) > 1 else "")
             response = text_llm.ask(text, system=sys_p)
             self._history.append({"role": "assistant", "content": response})
             self._resp_sig.emit(response)

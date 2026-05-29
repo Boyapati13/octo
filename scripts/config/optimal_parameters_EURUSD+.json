@@ -1,0 +1,10 @@
+{
+    "last_updated": "2026-05-28T19:34:15.548215+00:00",
+    "symbol": "EURUSD+",
+    "window": 15,
+    "threshold": 0.003,
+    "hedge_threshold": 0.1,
+    "win_rate": 27.27272727272727,
+    "pf": 1.5,
+    "net_profit_pct": 3.5009999999999852
+}

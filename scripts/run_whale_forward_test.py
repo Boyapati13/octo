@@ -532,6 +532,7 @@ def main():
         "EURUSD+": {"w": 20,  "t": 0.0020, "h": 0.10},
         "XAUUSD+": {"w": 20,  "t": 0.0015, "h": 0.10},
         "NAS100":  {"w": 15,  "t": 0.0020, "h": 0.15},
+        "BTCUSD+": {"w": 15,  "t": 0.0040, "h": 0.10},
     }
 
     OOS_CANDLES  = 4000   # ~14 active trading days on M5

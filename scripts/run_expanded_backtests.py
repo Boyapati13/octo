@@ -13,7 +13,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from backtest_whale_engine import WhaleSuiteBacktester
 
 def main():
-    symbols = ["GBPUSD+", "USDJPY+", "AUDUSD+", "NAS100", "AAPL"]
+    symbols = ["GBPUSD+", "USDJPY+", "AUDUSD+", "NAS100", "AAPL", "BTCUSD+"]
     candle_count = 8000
     results = []
     

@@ -238,6 +238,9 @@ class Mt5Page(OctoPage):
         self._current_news = []
         self._current_calendar = []
         self._ollama_generating = False
+        # Latest live data snapshot — kept fresh every 5-second refresh cycle
+        self._last_portfolio: dict = {}
+        self._last_prices: list = []
         self._status_sig.connect(self._on_status_updated)
         self._suggestion_sig.connect(self._on_suggestion_received)
         self._timesfm_sig.connect(self._on_timesfm_received)
@@ -261,6 +264,17 @@ class Mt5Page(OctoPage):
         self._news_table.itemDoubleClicked.connect(self._on_news_double_clicked)
         self._cal_table.itemDoubleClicked.connect(self._on_cal_double_clicked)
 
+        # ── Auto-start Live Volume Profile background service ─────────────────
+        try:
+            import sys, os
+            _scripts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts")
+            if _scripts_dir not in sys.path:
+                sys.path.insert(0, _scripts_dir)
+            from volume_profile_service import start_background as _vp_start
+            _vp_start()
+        except Exception:
+            pass  # degrade gracefully if MT5 not connected yet
+
         # Regular update timer (polls MT5 every 4 seconds)
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._refresh)
@@ -274,6 +288,7 @@ class Mt5Page(OctoPage):
         # Initial load
         self._refresh()
         QTimer.singleShot(1000, self._refresh_news)
+
 
     def _build_header(self):
         hdr = QHBoxLayout()
@@ -883,6 +898,12 @@ class Mt5Page(OctoPage):
             "3. POSITION SIZING OVERLAYS:\n"
             "   - Boost (1.25x): Sizing is enhanced when trade entry aligns with technical breakouts.\n"
             "   - Block (0.0x) / reduction (0.5x): Sizing is cut or blocked on contrarian breakouts based on Gate Mode (BLOCK, SOFT, WARN, OFF).\n\n"
+            "4. VOLUME PROFILE & WHALE CLIMAX MECHANICS:\n"
+            "   - POC (Point of Control) acts as the auction fair-value anchor. VAH and VAL enclose 70% value area.\n"
+            "   - Relative Volatility Ratio: VR_t = TR_t / ATR_t\n"
+            "   - Dynamic Alpha: alpha_t = Max(0.01, Min(0.99, (1.0 / P) * (VR_t ^ S))) (where P is lookback, S is sensitivity)\n"
+            "   - Whale dynamic alpha speeds up close to 0.99 during high-volume climaxes (liquidations) and slows down close to 0.01 in consolidations to filter out noise.\n"
+            "   - BTCUSD VSA Engine: Calculates M15 volume absorption pinbars (volume > 1.5x avg, spread > 1.2x avg, close in outer 30%) with 9/21 EMA trend momentum tracking.\n\n"
             "Keep your responses extremely data-driven, mathematically precise, professional, and direct. Use markdown formatting, bullet points, and tables. Avoid generic or speculative financial advice."
         )
         self._embed_chat = ChatWidget(system=sys_prompt)
@@ -900,6 +921,16 @@ class Mt5Page(OctoPage):
                 background-color: #000000;
                 color: #ffaa00;
                 border: 1px solid #ffaa00;
+            }
+            QPushButton {
+                background-color: #0a0a0a;
+                color: #ffaa00;
+                border: 1px solid #ffaa00;
+                padding: 0 4px;
+            }
+            QPushButton:hover {
+                background-color: #ffaa00;
+                color: #000000;
             }
         """)
         chat_lay.addWidget(self._embed_chat, stretch=1)
@@ -1335,6 +1366,10 @@ class Mt5Page(OctoPage):
             self._dash_w.hide()
             return
 
+        # Cache latest live snapshot so chat dialogs opened later always have fresh data
+        self._last_portfolio = portfolio
+        self._last_prices = prices
+
         self._offline_w.hide()
         self._dash_w.show()
 
@@ -1413,6 +1448,14 @@ class Mt5Page(OctoPage):
 
         # 3. Update Watchlist Table
         self._wl_table.setRowCount(len(prices))
+        
+        # ── Inject live MT5 data into embedded AI Chat so it never needs to ask for position info ──
+        try:
+            if hasattr(self, "_embed_chat"):
+                self._embed_chat.update_live_context(portfolio, prices)
+        except Exception:
+            pass
+
         
         # Check combobox items to sync
         combo_items = [self._ai_symbol_cb.itemText(i) for i in range(self._ai_symbol_cb.count())]
@@ -2307,4 +2350,10 @@ class Mt5Page(OctoPage):
 
     def _open_chat_dialog(self):
         dialog = TradingManagerChatDialog(self.window())
+        # Inject the latest live position data into the dialog's chat widget before opening
+        try:
+            if self._last_portfolio:
+                dialog.chat.update_live_context(self._last_portfolio, self._last_prices)
+        except Exception:
+            pass
         dialog.exec()
