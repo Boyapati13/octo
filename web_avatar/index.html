@@ -5,18 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OCTO 3D Motion Avatar</title>
     <style>
-        body {
+        body, html {
             margin: 0;
             padding: 0;
             overflow: hidden;
-            background-color: #00060a;
+            background: transparent !important;
+            background-color: transparent !important;
             user-select: none;
+            width: 100vw;
+            height: 100vh;
             font-family: 'Courier New', Courier, monospace;
         }
-        #canvas-container {
+        #canvas-container, canvas {
             width: 100vw;
             height: 100vh;
             display: block;
+            background: transparent !important;
+            background-color: transparent !important;
         }
         #loading {
             position: absolute;
@@ -80,18 +85,19 @@
         const progressEl = document.getElementById('progress');
 
         function init() {
-            // 1. Create Scene & Atmospheric Fog
+            // 1. Create Scene & Atmospheric Fog (matches station primary background color)
             scene = new THREE.Scene();
-            scene.fog = new THREE.FogExp2(0x00060a, 0.04);
+            scene.fog = new THREE.FogExp2(0x060b18, 0.04);
 
             // 2. Camera Configuration
             camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
             camera.position.set(0, 1.45, 1.15); // Will be dynamically calibrated on load
 
-            // 3. WebGL Renderer configuration
+            // 3. WebGL Renderer configuration with Alpha support for true transparency
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25)); // Cap high-DPI scaling for fluid FPS
+            renderer.setClearColor(0x000000, 0); // Clear to fully transparent
             renderer.outputEncoding = THREE.sRGBEncoding;
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
             renderer.toneMappingExposure = 1.1;
@@ -118,9 +124,12 @@
             rightRimLight.position.set(3, 1.8, -2.5);
             scene.add(rightRimLight);
 
-            // 5. Load Rigged avatar.glb Model
+            // 5. Load dynamic Rigged GLB Model from URL parameter
+            const urlParams = new URLSearchParams(window.location.search);
+            const modelParam = urlParams.get('model') || 'avatar.glb';
+            
             const loader = new THREE.GLTFLoader();
-            const glbPath = 'avatar.glb';
+            const glbPath = modelParam;
 
             loader.load(
                 glbPath,
