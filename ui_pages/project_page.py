@@ -20,6 +20,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
+from functools import partial
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QObject
 from PyQt6.QtGui import QFont, QColor
@@ -70,7 +71,9 @@ def set_active_project(name: str | None) -> None:
     _save_projects(projects)
     active = next((p for p in projects if p.get("active")), None)
     if active:
-        os.environ["OCTO_PROJECT_ROOT"] = active.get("path", "")
+        # Crucial for DeerFlow LocalSandboxProvider isolation to work properly when
+        # subagents write intermediate artifacts.
+        os.environ["OCTO_PROJECT_ROOT"] = str(Path(active.get("path", "")).resolve())
         os.environ["OCTO_PROJECT_NAME"] = active.get("name", "")
     else:
         os.environ.pop("OCTO_PROJECT_ROOT", None)
@@ -908,13 +911,17 @@ class _ProjectWorkspace(QWidget):
             worker = _AgentWorker(agent_id, goal, model, self._project)
             worker.moveToThread(thread)
 
-            worker.progress.connect(lambda aid, txt, t=tile: t.append_chunk(txt))
-            worker.finished.connect(
-                lambda aid, res, t=tile, dc=done_counter: self._on_done(aid, res, t, dc)
-            )
-            worker.failed.connect(
-                lambda aid, err, t=tile, dc=done_counter: self._on_fail(aid, err, t, dc)
-            )
+            # Connect signals with `self` as the receiver context. This forces the lambda
+            # to run in `self`'s thread (the main GUI thread), preventing cross-thread UI updates
+            # and resulting QObject tree corruption/crashes.
+            # In PyQt6, passing a context object to connect a lambda isn't supported like in PySide.
+            # We must use proper slot functions or ensure the lambda is connected correctly.
+            # We will use explicit slot methods to avoid cross-thread UI issues.
+            # Create wrapper methods on `self` and connect to them using partials.
+            # This ensures PyQt6 correctly routes the cross-thread signal to the main GUI thread.
+            worker.progress.connect(partial(self._on_progress_wrapper, tile))
+            worker.finished.connect(partial(self._on_done_wrapper, tile, done_counter))
+            worker.failed.connect(partial(self._on_fail_wrapper, tile, done_counter))
 
             thread.started.connect(worker.run)
             self._threads[agent_id] = thread
@@ -924,6 +931,15 @@ class _ProjectWorkspace(QWidget):
             tile.set_status("running")
 
         self._update_agent_count()
+
+    def _on_progress_wrapper(self, tile, aid, txt):
+        tile.append_chunk(txt)
+
+    def _on_done_wrapper(self, tile, dc, aid, res):
+        self._on_done(aid, res, tile, dc)
+
+    def _on_fail_wrapper(self, tile, dc, aid, err):
+        self._on_fail(aid, err, tile, dc)
 
     def _on_done(self, agent_id: str, result: str, tile: _AgentTile, dc: dict):
         tile.set_status("done")
