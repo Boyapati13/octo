@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 from functools import partial
+from functools import partial
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QObject
 from PyQt6.QtGui import QFont, QColor
@@ -925,6 +926,15 @@ class _ProjectWorkspace(QWidget):
             tile.set_status("running")
 
         self._update_agent_count()
+
+    def _on_progress_wrapper(self, tile, aid, txt):
+        tile.append_chunk(txt)
+
+    def _on_done_wrapper(self, tile, dc, aid, res):
+        self._on_done(aid, res, tile, dc)
+
+    def _on_fail_wrapper(self, tile, dc, aid, err):
+        self._on_fail(aid, err, tile, dc)
 
     def _on_progress_wrapper(self, tile, aid, txt):
         tile.append_chunk(txt)
