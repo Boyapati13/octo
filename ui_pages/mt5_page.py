@@ -24,13 +24,29 @@ class PredictorCandleCanvas(QWidget):
         self.setFixedHeight(110)
         self.setStyleSheet("background: #0f111a; border: 1px solid #1f2233; border-radius: 6px;")
         self._candles = []
+        self._q10 = []
+        self._q90 = []
+        self._vah = None
+        self._val = None
+        self._poc = None
 
     def set_forecast(self, candles_list):
         self._candles = candles_list
         self.update()
 
+    def set_timesfm_bounds(self, q10_list, q90_list):
+        self._q10 = q10_list
+        self._q90 = q90_list
+        self.update()
+
+    def set_value_area(self, vah, val, poc):
+        self._vah = vah
+        self._val = val
+        self._poc = poc
+        self.update()
+
     def paintEvent(self, event):
-        from PyQt6.QtGui import QPainter, QPen, QBrush, QFont
+        from PyQt6.QtGui import QPainter, QPen, QBrush, QFont, QPainterPath
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
@@ -54,6 +70,16 @@ class PredictorCandleCanvas(QWidget):
         highs = [c["high"] for c in self._candles]
         lows = [c["low"] for c in self._candles]
         
+        if self._q90:
+            highs.extend(self._q90)
+        if self._q10:
+            lows.extend(self._q10)
+            
+        if self._vah is not None:
+            highs.append(self._vah)
+        if self._val is not None:
+            lows.append(self._val)
+            
         g_max = max(highs)
         g_min = min(lows)
         
@@ -66,6 +92,51 @@ class PredictorCandleCanvas(QWidget):
             
         col_w = (w - 2 * margin_x) / n
         candle_w = max(4, int(col_w * 0.6))
+
+        # Paint Value Area lines (VAH / VAL / POC)
+        if self._vah is not None and self._val is not None:
+            y_vah = scale_y(self._vah)
+            if margin_y <= y_vah <= h - margin_y:
+                painter.setPen(QPen(QColor(0, 255, 136, 90), 1.0, Qt.PenStyle.DotLine))
+                painter.drawLine(margin_x, y_vah, w - margin_x, y_vah)
+                painter.setFont(QFont(FONT_UI, 6))
+                painter.drawText(w - margin_x - 24, y_vah - 2, "VAH")
+
+            y_val = scale_y(self._val)
+            if margin_y <= y_val <= h - margin_y:
+                painter.setPen(QPen(QColor(255, 51, 85, 90), 1.0, Qt.PenStyle.DotLine))
+                painter.drawLine(margin_x, y_val, w - margin_x, y_val)
+                painter.setFont(QFont(FONT_UI, 6))
+                painter.drawText(w - margin_x - 22, y_val - 2, "VAL")
+
+            if self._poc is not None:
+                y_poc = scale_y(self._poc)
+                if margin_y <= y_poc <= h - margin_y:
+                    painter.setPen(QPen(QColor(255, 170, 0, 70), 1.0, Qt.PenStyle.DotLine))
+                    painter.drawLine(margin_x, y_poc, w - margin_x, y_poc)
+                    painter.setFont(QFont(FONT_UI, 6))
+                    painter.drawText(w - margin_x - 22, y_poc - 2, "POC")
+        
+        # Paint TimesFM 80% Prediction Interval Cloud
+        if self._q10 and self._q90 and len(self._q10) == n and len(self._q90) == n:
+            path = QPainterPath()
+            # Draw top curve (q90)
+            for i, q90_val in enumerate(self._q90):
+                cx = int(margin_x + i * col_w + col_w / 2.0)
+                cy = scale_y(q90_val)
+                if i == 0:
+                    path.moveTo(cx, cy)
+                else:
+                    path.lineTo(cx, cy)
+            # Draw bottom curve (q10) backwards
+            for i in range(len(self._q10) - 1, -1, -1):
+                cx = int(margin_x + i * col_w + col_w / 2.0)
+                cy = scale_y(self._q10[i])
+                path.lineTo(cx, cy)
+            path.closeSubpath()
+            painter.setPen(QPen(QColor(0, 170, 255, 60), 0.5, Qt.PenStyle.DashLine))
+            painter.setBrush(QBrush(QColor(0, 170, 255, 20)))
+            painter.drawPath(path)
         
         # Paint grid lines
         painter.setPen(QPen(QColor("#1f2233"), 0.5, Qt.PenStyle.DashLine))
@@ -1032,11 +1103,11 @@ class Mt5Page(OctoPage):
         ai_inputs.addWidget(self._ai_btn, stretch=1)
 
         self._tf_btn = self.btn("🔮 TFM Forecast", color=GREEN, height=24)
-        self._tf_btn.clicked.connect(self._get_timesfm_forecast)
+        self._tf_btn.clicked.connect(self._get_suggestion)
         ai_inputs.addWidget(self._tf_btn, stretch=1)
 
         self._kronos_btn = self.btn("📈 Kronos Forecast", color=GREEN, height=24)
-        self._kronos_btn.clicked.connect(self._get_kronos_forecast)
+        self._kronos_btn.clicked.connect(self._get_suggestion)
         ai_inputs.addWidget(self._kronos_btn, stretch=1)
         
         ai_lay.addLayout(ai_inputs)
@@ -1055,17 +1126,17 @@ class Mt5Page(OctoPage):
         scanner_row.addStretch()
         ai_lay.addLayout(scanner_row)
 
-        # AI Result Area
-        self._ai_res_lbl = self.lbl("Select symbol and click Suggestion or TimesFM Forecast to load statistics.", 8, color=TEXT_MED, wrap=True)
+        # AI Unified Result Area
+        self._ai_res_lbl = self.lbl("Select symbol and click ✨ Suggest to run the Unified Swarm Consensus analysis.", 8, color=TEXT_MED, wrap=True)
         
-        # Structured layout for suggestion output
+        # Structured layout for unified suggestion output
         self._ai_res_w = QWidget()
         self._ai_res_w.setStyleSheet("background: transparent; border: none;")
         self._ai_res_lay = QVBoxLayout(self._ai_res_w)
         self._ai_res_lay.setContentsMargins(0, 4, 0, 0)
         self._ai_res_lay.setSpacing(6)
 
-        # Suggestion summary boxes
+        # ── Row 1: Consensus Pill + Confidence Pill ──
         sug_metrics = QHBoxLayout()
         sug_metrics.setSpacing(8)
         
@@ -1073,8 +1144,8 @@ class Mt5Page(OctoPage):
         self._sug_dir_w.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px;")
         dir_lay = QVBoxLayout(self._sug_dir_w)
         dir_lay.setContentsMargins(6,4,6,4)
-        dir_lay.addWidget(self.lbl("DIRECTION", 7, color=TEXT_DIM, bold=True))
-        self._sug_dir_val = self.lbl("WAIT", 13, bold=True, color=ACC2)
+        dir_lay.addWidget(self.lbl("UNIFIED SWARM CONSENSUS", 7, color=TEXT_DIM, bold=True))
+        self._sug_dir_val = self.lbl("WAIT", 12, bold=True, color=ACC2)
         self._sug_dir_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
         dir_lay.addWidget(self._sug_dir_val)
         sug_metrics.addWidget(self._sug_dir_w, stretch=1)
@@ -1083,36 +1154,74 @@ class Mt5Page(OctoPage):
         self._sug_conf_w.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px;")
         conf_lay = QVBoxLayout(self._sug_conf_w)
         conf_lay.setContentsMargins(6,4,6,4)
-        conf_lay.addWidget(self.lbl("CONFIDENCE", 7, color=TEXT_DIM, bold=True))
+        conf_lay.addWidget(self.lbl("DECISION CONFIDENCE", 7, color=TEXT_DIM, bold=True))
         self._sug_conf_val = self.lbl("MEDIUM", 9, bold=True, color=WHITE)
         self._sug_conf_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
         conf_lay.addWidget(self._sug_conf_val)
         sug_metrics.addWidget(self._sug_conf_w, stretch=1)
+        self._ai_res_lay.addLayout(sug_metrics)
 
+        # ── Row 2: Visual Canvas (Left) vs Level Targets (Right) ──
+        mid_row = QHBoxLayout()
+        mid_row.setSpacing(8)
+
+        # Left: Canvas
+        canvas_box = QWidget()
+        canvas_box.setStyleSheet("background: transparent; border: none;")
+        canvas_lay = QVBoxLayout(canvas_box)
+        canvas_lay.setContentsMargins(0, 0, 0, 0)
+        canvas_lay.setSpacing(2)
+        canvas_lay.addWidget(self.lbl("🔮 UNIFIED PATH SWEEP (TIMESFM ENVELOPE + KRONOS PATH)", 7, bold=True, color=ACC2))
+        self._kronos_canvas = PredictorCandleCanvas()
+        canvas_lay.addWidget(self._kronos_canvas)
+        mid_row.addWidget(canvas_box, stretch=3)
+
+        # Right: Levels Grid
         self._sug_levels_w = QWidget()
         self._sug_levels_w.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px;")
         lvl_grid = QGridLayout(self._sug_levels_w)
-        lvl_grid.setContentsMargins(6,4,6,4)
-        lvl_grid.addWidget(self.lbl("ENTRY", 6.5, color=TEXT_DIM), 0, 0)
+        lvl_grid.setContentsMargins(8,6,8,6)
+        
+        lvl_grid.addWidget(self.lbl("SWARM ENTRY TARGET", 6.5, color=TEXT_DIM), 0, 0)
         self._sug_entry = self.lbl("--", 8, bold=True, color=WHITE)
         lvl_grid.addWidget(self._sug_entry, 0, 1)
         
-        lvl_grid.addWidget(self.lbl("SL", 6.5, color=TEXT_DIM), 1, 0)
+        lvl_grid.addWidget(self.lbl("INVALIDATION STOP LOSS", 6.5, color=TEXT_DIM), 1, 0)
         self._sug_sl = self.lbl("--", 8, bold=True, color=RED)
         lvl_grid.addWidget(self._sug_sl, 1, 1)
 
-        lvl_grid.addWidget(self.lbl("TP", 6.5, color=TEXT_DIM), 0, 2)
+        lvl_grid.addWidget(self.lbl("RE-AUCTION EXIT (TP)", 6.5, color=TEXT_DIM), 0, 2)
         self._sug_tp = self.lbl("--", 8, bold=True, color=GREEN)
         lvl_grid.addWidget(self._sug_tp, 0, 3)
 
-        lvl_grid.addWidget(self.lbl("R:R", 6.5, color=TEXT_DIM), 1, 2)
+        lvl_grid.addWidget(self.lbl("MATH RISK:REWARD", 6.5, color=TEXT_DIM), 1, 2)
         self._sug_rr = self.lbl("--", 8, bold=True, color=WHITE)
         lvl_grid.addWidget(self._sug_rr, 1, 3)
-        sug_metrics.addWidget(self._sug_levels_w, stretch=2)
+        mid_row.addWidget(self._sug_levels_w, stretch=2)
 
-        self._ai_res_lay.addLayout(sug_metrics)
+        self._ai_res_lay.addLayout(mid_row)
 
-        # Reasoning block
+        # ── Row 3: Swarm Telemetry Component Breakdown Grid ──
+        telemetry_box = QFrame()
+        telemetry_box.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px; padding: 4px;")
+        telemetry_lay = QVBoxLayout(telemetry_box)
+        telemetry_lay.setContentsMargins(4,4,4,4)
+        telemetry_lay.addWidget(self.lbl("CONVERGENCE MATRIX TELEMETRY", 7.5, bold=True, color=ACC2))
+        
+        tele_grid = QHBoxLayout()
+        tele_grid.setSpacing(10)
+        
+        self._tf_telemetry_lbl = self.lbl("TimesFM Vector: --", 7.5, color=WHITE)
+        self._kr_telemetry_lbl = self.lbl("Kronos Vector: --", 7.5, color=WHITE)
+        self._vol_telemetry_lbl = self.lbl("Volume Profile: --", 7.5, color=WHITE)
+        
+        tele_grid.addWidget(self._tf_telemetry_lbl)
+        tele_grid.addWidget(self._kr_telemetry_lbl)
+        tele_grid.addWidget(self._vol_telemetry_lbl)
+        telemetry_lay.addLayout(tele_grid)
+        self._ai_res_lay.addWidget(telemetry_box)
+
+        # ── Row 4: Reasoning Block ──
         self._sug_reason_card = QFrame()
         self._sug_reason_card.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px; padding: 6px;")
         reason_lay = QVBoxLayout(self._sug_reason_card)
@@ -1122,7 +1231,7 @@ class Mt5Page(OctoPage):
         reason_lay.addWidget(self._sug_reasoning)
         self._ai_res_lay.addWidget(self._sug_reason_card)
 
-        # Relevant Market News Card
+        # ── Row 5: Calendar Links Card ──
         self._sug_links_card = QFrame()
         self._sug_links_card.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px; padding: 6px;")
         links_lay = QVBoxLayout(self._sug_links_card)
@@ -1137,133 +1246,6 @@ class Mt5Page(OctoPage):
         ai_lay.addWidget(self._ai_res_w)
         self._ai_res_w.hide() # hide until we get a result
 
-        # TimesFM Result Area
-        self._tf_res_w = QWidget()
-        self._tf_res_w.setStyleSheet("background: transparent; border: none;")
-        self._tf_res_lay = QVBoxLayout(self._tf_res_w)
-        self._tf_res_lay.setContentsMargins(0, 4, 0, 0)
-        self._tf_res_lay.setSpacing(6)
-
-        # Forecast summary boxes
-        tf_metrics = QHBoxLayout()
-        tf_metrics.setSpacing(8)
-        
-        self._tf_dir_w = QWidget()
-        self._tf_dir_w.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px;")
-        tf_dir_lay = QVBoxLayout(self._tf_dir_w)
-        tf_dir_lay.setContentsMargins(6,4,6,4)
-        tf_dir_lay.addWidget(self.lbl("EXPECTED TREND", 7, color=TEXT_DIM, bold=True))
-        self._tf_dir_val = self.lbl("NEUTRAL", 13, bold=True, color=ACC2)
-        self._tf_dir_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        tf_dir_lay.addWidget(self._tf_dir_val)
-        tf_metrics.addWidget(self._tf_dir_w, stretch=1)
-
-        self._tf_target_w = QWidget()
-        self._tf_target_w.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px;")
-        tf_target_lay = QVBoxLayout(self._tf_target_w)
-        tf_target_lay.setContentsMargins(6,4,6,4)
-        tf_target_lay.addWidget(self.lbl("TARGET PRICE (+24H)", 7, color=TEXT_DIM, bold=True))
-        self._tf_target_val = self.lbl("--", 10.5, bold=True, color=WHITE)
-        self._tf_target_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        tf_target_lay.addWidget(self._tf_target_val)
-        tf_metrics.addWidget(self._tf_target_w, stretch=1)
-
-        self._tf_move_w = QWidget()
-        self._tf_move_w.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px;")
-        tf_move_lay = QVBoxLayout(self._tf_move_w)
-        tf_move_lay.setContentsMargins(6,4,6,4)
-        tf_move_lay.addWidget(self.lbl("EXPECTED MOVE", 7, color=TEXT_DIM, bold=True))
-        self._tf_move_val = self.lbl("--", 10.5, bold=True, color=WHITE)
-        self._tf_move_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        tf_move_lay.addWidget(self._tf_move_val)
-        tf_metrics.addWidget(self._tf_move_w, stretch=1)
-
-        self._tf_res_lay.addLayout(tf_metrics)
-
-        # Forecast intervals table
-        tf_table_card = QFrame()
-        tf_table_card.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px; padding: 6px;")
-        table_card_lay = QVBoxLayout(tf_table_card)
-        table_card_lay.setContentsMargins(4,4,4,4)
-        table_card_lay.addWidget(self.lbl("🔮 TIMESFM STEP FORECAST & 80% CONFIDENCE INTERVAL", 7.5, bold=True, color=ACC2))
-        
-        self._tf_table = QTableWidget(0, 4)
-        self._tf_table.setHorizontalHeaderLabels([
-            "Step (Ahead)", "Estimated Price", "80% CI (Lower)", "80% CI (Upper)"
-        ])
-        self._style_table(self._tf_table)
-        self._tf_table.setFixedHeight(120)
-        table_card_lay.addWidget(self._tf_table)
-        
-        self._tf_res_lay.addWidget(tf_table_card)
-        ai_lay.addWidget(self._tf_res_w)
-        self._tf_res_w.hide()
-
-        # Kronos K-Line Result Area
-        self._kronos_res_w = QWidget()
-        self._kronos_res_w.setStyleSheet("background: transparent; border: none;")
-        self._kronos_res_lay = QVBoxLayout(self._kronos_res_w)
-        self._kronos_res_lay.setContentsMargins(0, 4, 0, 0)
-        self._kronos_res_lay.setSpacing(6)
-
-        # Forecast summary boxes
-        kronos_metrics = QHBoxLayout()
-        kronos_metrics.setSpacing(8)
-        
-        self._kronos_dir_w = QWidget()
-        self._kronos_dir_w.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px;")
-        kronos_dir_lay = QVBoxLayout(self._kronos_dir_w)
-        kronos_dir_lay.setContentsMargins(6,4,6,4)
-        kronos_dir_lay.addWidget(self.lbl("KRONOS TREND", 7, color=TEXT_DIM, bold=True))
-        self._kronos_dir_val = self.lbl("NEUTRAL", 13, bold=True, color=ACC2)
-        self._kronos_dir_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        kronos_dir_lay.addWidget(self._kronos_dir_val)
-        kronos_metrics.addWidget(self._kronos_dir_w, stretch=1)
-
-        self._kronos_target_w = QWidget()
-        self._kronos_target_w.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px;")
-        kronos_target_lay = QVBoxLayout(self._kronos_target_w)
-        kronos_target_lay.setContentsMargins(6,4,6,4)
-        kronos_target_lay.addWidget(self.lbl("TARGET CLOSE (+24H)", 7, color=TEXT_DIM, bold=True))
-        self._kronos_target_val = self.lbl("--", 10.5, bold=True, color=WHITE)
-        self._kronos_target_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        kronos_target_lay.addWidget(self._kronos_target_val)
-        kronos_metrics.addWidget(self._kronos_target_w, stretch=1)
-
-        self._kronos_move_w = QWidget()
-        self._kronos_move_w.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px;")
-        kronos_move_lay = QVBoxLayout(self._kronos_move_w)
-        kronos_move_lay.setContentsMargins(6,4,6,4)
-        kronos_move_lay.addWidget(self.lbl("ESTIMATED MOVE", 7, color=TEXT_DIM, bold=True))
-        self._kronos_move_val = self.lbl("--", 10.5, bold=True, color=WHITE)
-        self._kronos_move_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        kronos_move_lay.addWidget(self._kronos_move_val)
-        kronos_metrics.addWidget(self._kronos_move_w, stretch=1)
-
-        self._kronos_res_lay.addLayout(kronos_metrics)
-
-        # Custom visual candlestick canvas!
-        self._kronos_canvas = PredictorCandleCanvas()
-        self._kronos_res_lay.addWidget(self._kronos_canvas)
-
-        # Forecast intervals table
-        kronos_table_card = QFrame()
-        kronos_table_card.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px; padding: 6px;")
-        kronos_table_card_lay = QVBoxLayout(kronos_table_card)
-        kronos_table_card_lay.setContentsMargins(4,4,4,4)
-        kronos_table_card_lay.addWidget(self.lbl("📈 KRONOS K-LINE FORECAST & STRUCTURAL CHANNELS", 7.5, bold=True, color=ACC2))
-        
-        self._kronos_table = QTableWidget(0, 5)
-        self._kronos_table.setHorizontalHeaderLabels([
-            "Step", "Open", "High (Max)", "Low (Min)", "Close (Last)"
-        ])
-        self._style_table(self._kronos_table)
-        self._kronos_table.setFixedHeight(120)
-        kronos_table_card_lay.addWidget(self._kronos_table)
-        
-        self._kronos_res_lay.addWidget(kronos_table_card)
-        ai_lay.addWidget(self._kronos_res_w)
-        self._kronos_res_w.hide()
         split_bottom.addWidget(ai_w, stretch=6)
 
         # Right: Financial news crawl & Economic calendar
@@ -2094,8 +2076,6 @@ class Mt5Page(OctoPage):
             return
             
         self._ai_res_lbl.hide()
-        self._tf_res_w.hide()
-        self._kronos_res_w.hide()
         self._ai_res_w.show()
         
         self._sug_dir_val.setText("WAIT")
@@ -2108,6 +2088,8 @@ class Mt5Page(OctoPage):
         self._sug_rr.setText("...")
         self._sug_reasoning.setText("Gemini Live Core is analyzing structural patterns, key supply/demand levels, and recent price action momentum...")
         self._ai_btn.setEnabled(False)
+        self._tf_btn.setEnabled(False)
+        self._kronos_btn.setEnabled(False)
 
         threading.Thread(target=self._get_suggestion_thread, args=(symbol, timeframe), daemon=True).start()
 
@@ -2187,7 +2169,58 @@ class Mt5Page(OctoPage):
         self._sug_tp.setText(str(tp))
         self._sug_rr.setText(str(rr))
         self._sug_reasoning.setText(reasoning)
-        
+
+        # Update Convergence Matrix Telemetry
+        tf_comp = sug.get("timesfm_component", 0.0)
+        kr_comp = sug.get("kronos_component", 0.0)
+        vol_comp = sug.get("volume_component", 0.0)
+
+        def get_comp_str(name, val):
+            if val > 0.15:
+                return f"{name}: <span style='color: {GREEN}; font-weight: bold;'>BULL ({val:.2f})</span>"
+            elif val < -0.15:
+                return f"{name}: <span style='color: {RED}; font-weight: bold;'>BEAR ({val:.2f})</span>"
+            else:
+                return f"{name}: <span style='color: {ACC2}; font-weight: bold;'>NEUTRAL ({val:.2f})</span>"
+
+        self._tf_telemetry_lbl.setText(get_comp_str("TimesFM Vector", tf_comp))
+        self._kr_telemetry_lbl.setText(get_comp_str("Kronos Vector", kr_comp))
+        self._vol_telemetry_lbl.setText(get_comp_str("Volume Profile", vol_comp))
+
+        # Update visual forecast canvas (PredictorCandleCanvas)
+        kronos_data = sug.get("kronos_candles")
+        if kronos_data:
+            opens = kronos_data.get("opens", [])
+            highs = kronos_data.get("highs", [])
+            lows = kronos_data.get("lows", [])
+            closes = kronos_data.get("closes", [])
+            canvas_candles = []
+            for i in range(len(closes)):
+                canvas_candles.append({
+                    "open": opens[i],
+                    "high": highs[i],
+                    "low": lows[i],
+                    "close": closes[i]
+                })
+            self._kronos_canvas.set_forecast(canvas_candles)
+        else:
+            self._kronos_canvas.set_forecast([])
+
+        timesfm_q10 = sug.get("timesfm_q10", [])
+        timesfm_q90 = sug.get("timesfm_q90", [])
+        if timesfm_q10 and timesfm_q90:
+            self._kronos_canvas.set_timesfm_bounds(timesfm_q10, timesfm_q90)
+        else:
+            self._kronos_canvas.set_timesfm_bounds([], [])
+
+        vah = sug.get("vah")
+        val = sug.get("val")
+        poc = sug.get("poc")
+        if vah is not None and val is not None and poc is not None:
+            self._kronos_canvas.set_value_area(vah, val, poc)
+        else:
+            self._kronos_canvas.set_value_area(None, None, None)
+
         # Update relevant trading links
         self._update_relevant_trading_links(sug.get("symbol") or self._ai_symbol_cb.currentText())
 
