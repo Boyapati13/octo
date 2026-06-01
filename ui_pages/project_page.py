@@ -561,6 +561,7 @@ class _ProjectWorkspace(QWidget):
         self._project: dict = {}
         self._agent_tiles: dict[str, _AgentTile] = {}
         self._threads: dict[str, QThread] = {}
+        self._workers: dict[str, QObject] = {}
         self._feed_items: list[_TaskFeedItem] = []
         self.setStyleSheet(f"background:{C.BG};")
         self._build()
@@ -917,6 +918,7 @@ class _ProjectWorkspace(QWidget):
 
             thread.started.connect(worker.run)
             self._threads[agent_id] = thread
+            self._workers[agent_id] = worker
             thread.start()
 
             tile.set_status("running")
@@ -945,6 +947,7 @@ class _ProjectWorkspace(QWidget):
         t = self._threads.pop(agent_id, None)
         if t:
             t.quit()
+        self._workers.pop(agent_id, None)
 
     def _update_agent_count(self):
         n = sum(1 for t in self._agent_tiles.values() if hasattr(t, "_status") and t._status == "running")

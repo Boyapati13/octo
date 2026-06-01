@@ -72,8 +72,13 @@ def main():
     print("=" * 60)
     
     if not mt5.initialize():
-        print(f"[ERROR] MT5 connection failed: {mt5.last_error()}")
-        return
+        import os
+        exe_path = r"C:\Program Files\MetaTrader 5\terminal64.exe"
+        if os.path.exists(exe_path) and mt5.initialize(path=exe_path):
+            pass
+        else:
+            print(f"[ERROR] MT5 connection failed: {mt5.last_error()}")
+            return
         
     # We test on the most recent 2,500 M5 candles (representing the last ~9 active trading days)
     symbols = ["XAUUSD+", "NAS100", "GBPUSD+", "USDJPY+", "EURUSD+"]

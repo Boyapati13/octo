@@ -799,8 +799,13 @@ class HybridTradingBot:
 
     def initialize_mt5(self) -> bool:
         if not mt5.initialize():
-            print(f"[Bot] [ERROR] MT5 connection failed: {mt5.last_error()}")
-            return False
+            exe_path = r"C:\Program Files\MetaTrader 5\terminal64.exe"
+            import os
+            if os.path.exists(exe_path) and mt5.initialize(path=exe_path):
+                pass
+            else:
+                print(f"[Bot] [ERROR] MT5 connection failed: {mt5.last_error()}")
+                return False
         
         # Select all symbols
         for sym in self.all_symbols:

@@ -12,9 +12,9 @@
     "active": false
   },
   {
-    "name": "test",
-    "path": "C:/Users/Tenders/Downloads",
-    "desc": "",
+    "name": "test-project",
+    "path": "C:/Users/Tenders/octo/scratch/test-project",
+    "desc": "A small test project verified clean",
     "active": true
   }
 ]

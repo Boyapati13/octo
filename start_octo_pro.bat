@@ -2,7 +2,13 @@
 :: ┌──────────────────────────────────────────────────────────────┐
 :: │          OCTO-Pro Super Model — Unified Launcher             │
 :: │  Starts: Voice Loop + Model Proxy + DeerFlow + Hermes        │
-:: │  └──────────────────────────────────────────────────────────────┘
+:: │                                                              │
+:: │  Unified Repositories Indexed:                               │
+:: │   - https://github.com/bytedance/deer-flow.git                │
+:: │   - https://github.com/NousResearch/hermes-agent.git          │
+:: │   - https://github.com/FatihMakes/Mark-XXXIX.git              │
+:: │   - https://github.com/Alishahryar1/free-claude-code.git (fcc-server) │
+:: └──────────────────────────────────────────────────────────────┘
 cd /d "%~dp0"
 
 :: Set environment variables for robust UTF-8 console output

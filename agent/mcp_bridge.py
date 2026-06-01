@@ -250,6 +250,18 @@ def call_tool(server_name: str, tool_name: str, arguments: Dict) -> str:
     with _lock:
         entry = _registry.get(server_name)
     if not entry:
+        # Auto-connect if configured but not connected yet
+        try:
+            cfgs = _load_config()
+            cfg  = next((c for c in cfgs if c.get("name") == server_name), None)
+            if cfg and cfg.get("enabled", True):
+                _connect_server(cfg)
+                with _lock:
+                    entry = _registry.get(server_name)
+        except Exception as e:
+            logger.warning("[MCP] Auto-connect failed for %s: %s", server_name, e)
+
+    if not entry:
         return f"[MCP] Server '{server_name}' not connected."
     try:
         return entry["call_fn"](tool_name, arguments)

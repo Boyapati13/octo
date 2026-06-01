@@ -12,7 +12,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QFont, QColor
 from .base import (
     OctoPage, BG, PANEL, PANEL2, BORDER, BORDER_B, PRI, PRI_DIM, PRI_GHO,
-    ACC, ACC2, GREEN, GREEN_D, RED, TEXT, TEXT_DIM, TEXT_MED, WHITE, DARK
+    ACC, ACC2, GREEN, GREEN_D, RED, TEXT, TEXT_DIM, TEXT_MED, WHITE, DARK,
+    FONT_UI, FONT_DATA, _hex_to_rgb_str,
 )
 
 class PremiumAlertToast(QWidget):
@@ -21,70 +22,72 @@ class PremiumAlertToast(QWidget):
         super().__init__(parent_widget)
         self.setWindowFlags(Qt.WindowType.SubWindow | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        
+
         border_color = GREEN if direction == "BUY" else RED
-        bg_gradient = "qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #00121d, stop:1 #00060a)"
-        
+        _r, _g, _b = _hex_to_rgb_str(border_color).split(", ")
+        bg_grad = f"qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 rgba({_r},{_g},{_b},25), stop:1 {DARK})"
+
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(15, 12, 15, 12)
-        
+        lay.setContentsMargins(12, 10, 12, 10)
+
         card = QFrame()
         card.setStyleSheet(f"""
             QFrame {{
-                background: {bg_gradient};
-                border: 2px solid {border_color};
-                border-radius: 8px;
+                background: {bg_grad};
+                border: 1px solid rgba({_r},{_g},{_b},180);
+                border-radius: 12px;
             }}
         """)
         card_lay = QVBoxLayout(card)
-        card_lay.setContentsMargins(10, 8, 10, 8)
-        card_lay.setSpacing(6)
-        
+        card_lay.setContentsMargins(14, 10, 14, 10)
+        card_lay.setSpacing(8)
+
         hdr = QHBoxLayout()
         icon = QLabel("⚠️" if direction == "SELL" else "🚀")
-        icon.setFont(QFont("Courier New", 14))
+        icon.setFont(QFont(FONT_UI, 14))
         icon.setStyleSheet("background: transparent; border: none;")
         hdr.addWidget(icon)
-        
-        title = QLabel(f"⚡ MATRIX {direction} ALERT ⚡")
-        title.setFont(QFont("Courier New", 10, QFont.Weight.Bold))
-        title.setStyleSheet(f"color: {border_color}; background: transparent; border: none;")
+
+        title = QLabel(f"MATRIX {direction} ALERT")
+        title.setFont(QFont(FONT_UI, 10, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {border_color}; background: transparent; border: none; letter-spacing: 1px;")
         hdr.addWidget(title)
-        
         hdr.addStretch()
-        
+
         close_b = QPushButton("✕")
-        close_b.setFixedSize(16, 16)
-        close_b.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        close_b.setFixedSize(20, 20)
+        close_b.setFont(QFont(FONT_UI, 8, QFont.Weight.Bold))
         close_b.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_b.setStyleSheet(f"QPushButton {{background: transparent; color: {TEXT_DIM}; border: 1px solid {BORDER}; border-radius: 2px;}} QPushButton:hover {{background: {RED}; color: {WHITE};}}")
+        close_b.setStyleSheet(f"""
+            QPushButton {{background: transparent; color: {TEXT_DIM}; border: 1px solid {BORDER}; border-radius: 10px;}}
+            QPushButton:hover {{background: {RED}; color: {WHITE}; border-color: {RED};}}
+        """)
         close_b.clicked.connect(self.close)
         hdr.addWidget(close_b)
         card_lay.addLayout(hdr)
-        
+
         info = QLabel(f"Instrument: {symbol}\nEntry Target: {entry}\nStop Loss: {sl}\nTake Profit: {tp}")
-        info.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
-        info.setStyleSheet(f"color: {WHITE}; background: transparent; border: none;")
+        info.setFont(QFont(FONT_DATA, 9, QFont.Weight.Bold))
+        info.setStyleSheet(f"color: {WHITE}; background: transparent; border: none; line-height: 1.5;")
         card_lay.addWidget(info)
-        
-        note = QLabel("Multi-Agent Swarm Locked Alignment Parameters Natively.")
-        note.setFont(QFont("Courier New", 7))
+
+        note = QLabel("Multi-Agent Swarm • Aligned Parameters")
+        note.setFont(QFont(FONT_UI, 7))
         note.setStyleSheet(f"color: {TEXT_DIM}; background: transparent; border: none;")
         card_lay.addWidget(note)
-        
+
         lay.addWidget(card)
-        
+
         try:
             import winsound
             winsound.MessageBeep(winsound.MB_ICONASTERISK)
         except Exception:
             pass
-            
-        self.resize(320, 140)
+
+        self.resize(340, 150)
         self.position_toast(parent_widget)
-        
         QTimer.singleShot(12000, self.close)
-        
+
     def position_toast(self, parent):
         if not parent:
             return
@@ -100,11 +103,12 @@ class TradingManagerChatDialog(QDialog):
         self.setWindowTitle("OCTO — Live Trading Manager Assistant")
         self.setMinimumSize(500, 600)
         self.resize(550, 650)
-        self.setStyleSheet("""
-            QDialog {
-                background: #000a10;
-                border: 1px solid #005577;
-            }
+        self.setStyleSheet(f"""
+            QDialog {{
+                background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 {PANEL}, stop:1 {BG});
+                border: 1px solid {BORDER_B};
+                border-radius: 12px;
+            }}
         """)
         
         # Main layout
@@ -115,27 +119,27 @@ class TradingManagerChatDialog(QDialog):
         # Title and header
         hdr = QHBoxLayout()
         icon = QLabel("📊")
-        icon.setFont(QFont("Courier New", 14))
+        icon.setFont(QFont(FONT_UI, 14))
         hdr.addWidget(icon)
         
         title = QLabel("LIVE TRADING MANAGER ASSISTANT")
-        title.setFont(QFont("Courier New", 10, QFont.Weight.Bold))
-        title.setStyleSheet("color: #00ff88; background: transparent;")
+        title.setFont(QFont(FONT_UI, 10, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {GREEN}; background: transparent;")
         hdr.addWidget(title)
         hdr.addStretch()
         
         close_btn = QPushButton("✕")
         close_btn.setFixedSize(20, 20)
-        close_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        close_btn.setFont(QFont(FONT_UI, 8, QFont.Weight.Bold))
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.setAutoDefault(False)
         close_btn.setDefault(False)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent; color: #888888;
-                border: 1px solid #1a2f3f; border-radius: 2px;
-            }
-            QPushButton:hover { background: #ff3355; color: #ffffff; }
+        close_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {TEXT_DIM};
+                border: 1px solid {BORDER}; border-radius: 4px;
+            }}
+            QPushButton:hover {{ background: {RED}; color: {WHITE}; border-color: {RED}; }}
         """)
         close_btn.clicked.connect(self.close)
         hdr.addWidget(close_btn)
@@ -145,17 +149,17 @@ class TradingManagerChatDialog(QDialog):
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setFrameShadow(QFrame.Shadow.Sunken)
-        sep.setStyleSheet("background-color: #1a2f3f; max-height: 1px; border: none;")
+        sep.setStyleSheet(f"background-color: {BORDER}; max-height: 1px; border: none;")
         lay.addWidget(sep)
         
         # Subtitle info about account
         sub = QLabel("Coordinating with Live Risk Managers and MT5 Automated Trading Agents...")
-        sub.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
-        sub.setStyleSheet("color: #888888; background: transparent;")
+        sub.setFont(QFont(FONT_UI, 8, QFont.Weight.Bold))
+        sub.setStyleSheet(f"color: {TEXT_DIM}; background: transparent;")
         lay.addWidget(sub)
         
         # Instantiate the imported ChatWidget
-        from ui import ChatWidget, C
+        from ui import ChatWidget
         sys_prompt = (
             "You are the user's executive Trading Manager, Risk Manager, and automated Trading Agent coordinator.\n"
             "Your role is to assist the user with any trading questions, risk calculations, strategy logic, or current position queries.\n"
@@ -172,31 +176,31 @@ class TradingManagerChatDialog(QDialog):
         
         self.input_field = QLineEdit()
         self.input_field.setPlaceholderText("Ask your Trading Manager a question (e.g. should I close Gold?)...")
-        self.input_field.setFont(QFont("Courier New", 8))
+        self.input_field.setFont(QFont(FONT_UI, 8))
         self.input_field.setFixedHeight(30)
         self.input_field.setStyleSheet(f"""
             QLineEdit {{
-                background: #000d12; color: {TEXT};
-                border: 1px solid {BORDER}; border-radius: 3px; padding: 2px 8px;
+                background: {DARK}; color: {TEXT};
+                border: 1px solid {BORDER}; border-radius: 6px; padding: 2px 8px;
             }}
-            QLineEdit:focus {{ border: 1px solid #00ff88; }}
+            QLineEdit:focus {{ border: 1px solid {PRI}; }}
         """)
         self.input_field.returnPressed.connect(self._send_message)
         inp_row.addWidget(self.input_field, stretch=1)
         
         send_btn = QPushButton("Send ▸")
-        send_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        send_btn.setFont(QFont(FONT_UI, 8, QFont.Weight.Bold))
         send_btn.setFixedHeight(30)
         send_btn.setFixedWidth(70)
         send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         send_btn.setAutoDefault(False)
         send_btn.setDefault(False)
-        send_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent; color: #00ff88;
-                border: 1px solid #00aa66; border-radius: 3px;
-            }
-            QPushButton:hover { background: rgba(0, 255, 136, 0.1); border-color: #00ff88; }
+        send_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {GREEN};
+                border: 1px solid {GREEN}; border-radius: 6px;
+            }}
+            QPushButton:hover {{ background: rgba({_hex_to_rgb_str(GREEN)}, 0.1); border-color: {GREEN}; }}
         """)
         send_btn.clicked.connect(self._send_message)
         inp_row.addWidget(send_btn)
@@ -204,7 +208,7 @@ class TradingManagerChatDialog(QDialog):
         
         # Initial greeting from Trading Manager
         self.chat._append(
-            f'<div style="color:#00ff88;margin:2px 0"><b>Trading Manager:</b> Hello! I am your AI Trading Manager and Portfolio Risk Coordinator. '
+            f'<div style="color:{GREEN};margin:2px 0;font-family:\'{FONT_UI}\';font-size:8.5pt;"><b>Trading Manager:</b> Hello! I am your AI Trading Manager and Portfolio Risk Coordinator. '
             f'I am monitoring your active <b>XAUUSD+</b> position (ticket #193436544, lot 0.01) currently in healthy profit on your Vantage Live account. '
             f'How can I assist you with your positions, economic calendars, or strategy queries today?</div>'
         )
@@ -223,13 +227,16 @@ class TradingManagerChatDialog(QDialog):
         else:
             super().keyPressEvent(event)
 
+
 class Mt5Page(OctoPage):
-    _status_sig = pyqtSignal(dict)
+    _status_sig    = pyqtSignal(dict)
     _suggestion_sig = pyqtSignal(dict)
-    _timesfm_sig = pyqtSignal(dict)
-    _news_sig = pyqtSignal(dict)
-    _ollama_sig = pyqtSignal(dict)
+    _timesfm_sig   = pyqtSignal(dict)
+    _news_sig      = pyqtSignal(dict)
+    _ollama_sig    = pyqtSignal(dict)
     _auto_scan_sig = pyqtSignal(dict)
+    _watchdog_sig  = pyqtSignal(dict)
+    _cvxpy_sig     = pyqtSignal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -238,15 +245,18 @@ class Mt5Page(OctoPage):
         self._current_news = []
         self._current_calendar = []
         self._ollama_generating = False
-        # Latest live data snapshot — kept fresh every 5-second refresh cycle
+        self._watchdog_last: dict = {}
+        self._cvxpy_last:    dict = {}
         self._last_portfolio: dict = {}
-        self._last_prices: list = []
+        self._last_prices:    list = []
         self._status_sig.connect(self._on_status_updated)
         self._suggestion_sig.connect(self._on_suggestion_received)
         self._timesfm_sig.connect(self._on_timesfm_received)
         self._news_sig.connect(self._on_news_received)
         self._ollama_sig.connect(self._on_ollama_insight_received)
         self._auto_scan_sig.connect(self._on_auto_scan_received)
+        self._watchdog_sig.connect(self._on_watchdog_updated)
+        self._cvxpy_sig.connect(self._on_cvxpy_updated)
 
         # Scanner state variables
         self._auto_scan_timer = QTimer(self)
@@ -254,31 +264,58 @@ class Mt5Page(OctoPage):
         self._auto_scan_index = 0
         self._auto_scan_active = False
 
+        # Set page-wide premium dark theme
+        self.setStyleSheet(f"""
+            QWidget {{
+                background-color: {BG};
+                color: {TEXT};
+                font-family: '{FONT_UI}', 'Segoe UI', sans-serif;
+            }}
+            QFrame {{
+                border: 1px solid {BORDER};
+                background-color: {PANEL};
+                border-radius: 8px;
+            }}
+        """)
+
         # Build UI layout
         self._lay = self.page_layout()
         self._build_header()
         self._build_offline_banner()
         self._build_dashboard()
-        
+        self._build_octopro_panel()
+
         # Connect news and calendar table double click interactions
         self._news_table.itemDoubleClicked.connect(self._on_news_double_clicked)
         self._cal_table.itemDoubleClicked.connect(self._on_cal_double_clicked)
+
+        # ── Auto-start Watchdog Telemetry Pipe (Tier 2) ───────────────────────
+        try:
+            import sys as _sys, os as _os
+            _scripts_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "scripts")
+            if _scripts_dir not in _sys.path:
+                _sys.path.insert(0, _scripts_dir)
+            from watchdog_telemetry_pipe import start_background as _wdg_start
+            _wdg_start()
+        except Exception:
+            pass
 
         # ── Auto-start Live Volume Profile background service ─────────────────
         try:
-            import sys, os
-            _scripts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts")
-            if _scripts_dir not in sys.path:
-                sys.path.insert(0, _scripts_dir)
             from volume_profile_service import start_background as _vp_start
             _vp_start()
         except Exception:
-            pass  # degrade gracefully if MT5 not connected yet
+            pass
 
         # Regular update timer (polls MT5 every 4 seconds)
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._refresh)
         self._timer.start(4000)
+
+        # OCTO-Pro pipeline panel refresh (every 3 seconds)
+        self._octopro_timer = QTimer(self)
+        self._octopro_timer.timeout.connect(self._refresh_octopro)
+        self._octopro_timer.start(3000)
 
         # Economic calendar & news polling timer (polls every 60 seconds)
         self._news_timer = QTimer(self)
@@ -288,232 +325,156 @@ class Mt5Page(OctoPage):
         # Initial load
         self._refresh()
         QTimer.singleShot(1000, self._refresh_news)
-
+        QTimer.singleShot(2000, self._refresh_octopro)
 
     def _build_header(self):
-        hdr = QHBoxLayout()
-        hdr.setContentsMargins(0, 0, 0, 4)
-        
+        # Premium Dashboard Header
+        hdr_w = QWidget()
+        hdr_w.setStyleSheet(f"background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 {PANEL}, stop:0.5 {PANEL2}, stop:1 {PANEL}); border: none; border-bottom: 1px solid {BORDER}; border-radius: 0px;")
+        hdr_lay = QVBoxLayout(hdr_w)
+        hdr_lay.setContentsMargins(14, 8, 14, 8)
+        hdr_lay.setSpacing(6)
+
+        # Row 1: Title + action buttons
+        top_row = QHBoxLayout()
+        top_row.setSpacing(10)
+
         title_box = QVBoxLayout()
-        title_lbl = self.lbl("◈  METATRADER 5 DASHBOARD", 11, bold=True, color=PRI)
+        title_box.setSpacing(2)
+        title_lbl = QLabel("METATRADER 5 DASHBOARD")
+        title_lbl.setFont(QFont(FONT_UI, 12, QFont.Weight.Bold))
+        title_lbl.setStyleSheet(f"color: {WHITE}; background: transparent; letter-spacing: 1.5px;")
         title_box.addWidget(title_lbl)
-        
-        self._conn_status = self.lbl("○ OFFLINE (Initializing...)", 7, color=TEXT_DIM)
+
+        self._conn_status = QLabel("\u25cb  Initialising bridge\u2026")
+        self._conn_status.setFont(QFont(FONT_UI, 8))
+        self._conn_status.setStyleSheet(f"color: {TEXT_DIM}; background: transparent;")
         title_box.addWidget(self._conn_status)
-        hdr.addLayout(title_box)
-        hdr.addStretch()
+        top_row.addLayout(title_box)
+        top_row.addStretch()
 
-        # Chat with Manager button
-        self._chat_manager_btn = self.btn("💬 Chat with AI Manager", color=ACC2, height=26)
-        self._chat_manager_btn.clicked.connect(self._open_chat_dialog)
-        self._chat_manager_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        hdr.addWidget(self._chat_manager_btn)
-
-        # Refresh button
-        self._ref_btn = self.btn("↺ Refresh", color=PRI, height=26)
-        self._ref_btn.clicked.connect(self._refresh)
-        hdr.addWidget(self._ref_btn)
-        
-        self._lay.addLayout(hdr)
-        self._lay.addWidget(self.sep())
-
-    def _build_offline_banner(self):
-        self._offline_w = QFrame()
-        self._offline_w.setStyleSheet(f"""
-            QFrame {{
-                background: {PANEL};
-                border: 1px dashed {RED};
-                border-radius: 4px;
-                padding: 20px;
+        # Chat with AI Manager button (re-added)
+        chat_mgr_btn = QPushButton("\ud83d\udcac  AI Manager")
+        chat_mgr_btn.setFont(QFont(FONT_UI, 8, QFont.Weight.Bold))
+        chat_mgr_btn.setFixedHeight(30)
+        chat_mgr_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        chat_mgr_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: rgba({_hex_to_rgb_str(ACC2)}, 0.08);
+                color: {ACC2};
+                border: 1px solid rgba({_hex_to_rgb_str(ACC2)}, 0.4);
+                border-radius: 6px;
+                padding: 0 14px;
+            }}
+            QPushButton:hover {{
+                background: rgba({_hex_to_rgb_str(ACC2)}, 0.18);
+                border-color: {ACC2};
             }}
         """)
-        lay = QVBoxLayout(self._offline_w)
-        lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        icon = QLabel("⚠️")
-        icon.setFont(QFont("Courier New", 28))
-        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lay.addWidget(icon)
-        
-        title = QLabel("MT5 CONNECTION OFFLINE")
-        title.setFont(QFont("Courier New", 12, QFont.Weight.Bold))
-        title.setStyleSheet(f"color: {RED}; background: transparent;")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lay.addWidget(title)
-        
-        desc = QLabel(
-            "OCTO cannot connect to the MetaTrader 5 Bridge.\n\n"
-            "Please make sure:\n"
-            "1. MetaTrader 5 Desktop terminal is open and active on this computer.\n"
-            "2. The MT5 Python integration library is authorized (Tools -> Options -> Expert Advisors -> Allow WebRequest).\n"
-            "3. The FastMCP bridge server is fully running.\n\n"
-            "OCTO will automatically retry the connection in the background."
-        )
-        desc.setFont(QFont("Courier New", 8))
-        desc.setStyleSheet(f"color: {WHITE}; background: transparent;")
-        desc.setWordWrap(True)
-        desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lay.addWidget(desc)
-        
-        self._lay.addWidget(self._offline_w)
+        chat_mgr_btn.clicked.connect(self._open_chat_dialog)
+        top_row.addWidget(chat_mgr_btn)
 
-class Mt5Page(OctoPage):
-    _status_sig = pyqtSignal(dict)
-    _suggestion_sig = pyqtSignal(dict)
-    _timesfm_sig = pyqtSignal(dict)
-    _news_sig = pyqtSignal(dict)
-    _ollama_sig = pyqtSignal(dict)
-    _auto_scan_sig = pyqtSignal(dict)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        from memory.config_manager import load_watchlist
-        self._watchlist_symbols = load_watchlist()
-        self._current_news = []
-        self._current_calendar = []
-        self._ollama_generating = False
-        self._status_sig.connect(self._on_status_updated)
-        self._suggestion_sig.connect(self._on_suggestion_received)
-        self._timesfm_sig.connect(self._on_timesfm_received)
-        self._news_sig.connect(self._on_news_received)
-        self._ollama_sig.connect(self._on_ollama_insight_received)
-        self._auto_scan_sig.connect(self._on_auto_scan_received)
-
-        # Scanner state variables
-        self._auto_scan_timer = QTimer(self)
-        self._auto_scan_timer.timeout.connect(self._cycle_auto_scan)
-        self._auto_scan_index = 0
-        self._auto_scan_active = False
-
-        # Set page-wide Bloomberg style overrides
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #000000;
-                color: #ffffff;
-                font-family: 'Courier New', 'Consolas', monospace;
-            }
-            QFrame {
-                border: 1px solid #333333;
-                background-color: #050505;
-            }
+        # Refresh button
+        ref_btn = QPushButton("\u21ba  Refresh")
+        ref_btn.setFont(QFont(FONT_UI, 8, QFont.Weight.Bold))
+        ref_btn.setFixedHeight(30)
+        ref_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        ref_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: rgba({_hex_to_rgb_str(PRI)}, 0.08);
+                color: {PRI};
+                border: 1px solid rgba({_hex_to_rgb_str(PRI)}, 0.4);
+                border-radius: 6px;
+                padding: 0 14px;
+            }}
+            QPushButton:hover {{
+                background: rgba({_hex_to_rgb_str(PRI)}, 0.18);
+                border-color: {PRI};
+            }}
         """)
+        ref_btn.clicked.connect(self._refresh)
+        top_row.addWidget(ref_btn)
+        hdr_lay.addLayout(top_row)
 
-        # Build UI layout
-        self._lay = self.page_layout()
-        self._build_header()
-        self._build_offline_banner()
-        self._build_dashboard()
-        
-        # Connect news and calendar table double click interactions
-        self._news_table.itemDoubleClicked.connect(self._on_news_double_clicked)
-        self._cal_table.itemDoubleClicked.connect(self._on_cal_double_clicked)
-
-        # Regular update timer (polls MT5 every 4 seconds)
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._refresh)
-        self._timer.start(4000)
-
-        # Economic calendar & news polling timer (polls every 60 seconds)
-        self._news_timer = QTimer(self)
-        self._news_timer.timeout.connect(self._refresh_news)
-        self._news_timer.start(60000)
-
-        # Initial load
-        self._refresh()
-        QTimer.singleShot(1000, self._refresh_news)
-
-    def _build_header(self):
-        # Bloomberg Terminal Command Prompt Header
-        hdr_w = QWidget()
-        hdr_w.setStyleSheet("background-color: #000000; border: none; margin-bottom: 2px;")
-        hdr_lay = QVBoxLayout(hdr_w)
-        hdr_lay.setContentsMargins(0, 0, 0, 0)
-        hdr_lay.setSpacing(4)
-
-        # Row 1: Command bar
+        # Row 2: Command palette
         cmd_row = QHBoxLayout()
         cmd_row.setContentsMargins(0, 0, 0, 0)
-        cmd_row.setSpacing(6)
+        cmd_row.setSpacing(8)
 
-        # Terminal Prompt label
-        bbg_lbl = QLabel("BBG CMD ▸")
-        bbg_lbl.setFont(QFont("Courier New", 10, QFont.Weight.Bold))
-        bbg_lbl.setStyleSheet("color: #ffaa00; background: transparent; font-weight: bold;")
-        cmd_row.addWidget(bbg_lbl)
+        cmd_icon = QLabel("\u2318")
+        cmd_icon.setFont(QFont(FONT_UI, 10, QFont.Weight.Bold))
+        cmd_icon.setStyleSheet(f"color: {PRI}; background: transparent;")
+        cmd_row.addWidget(cmd_icon)
 
-        # Command input styled like a Bloomberg Terminal prompt
         self._cmd_input = QLineEdit()
-        self._cmd_input.setFont(QFont("Courier New", 10, QFont.Weight.Bold))
-        self._cmd_input.setPlaceholderText("XAUUSD <Equity> GP <Go>")
-        self._cmd_input.setStyleSheet("""
-            QLineEdit {
-                background-color: #000000;
-                color: #ffaa00;
-                border: 2px solid #ffaa00;
-                border-radius: 0px;
-                padding: 4px 10px;
-                selection-background-color: #ffaa00;
-                selection-color: #000000;
-            }
+        self._cmd_input.setFont(QFont(FONT_DATA, 9))
+        self._cmd_input.setPlaceholderText("Command palette \u2014 type symbol, DT, LONDON, GATE_MODE, HELP\u2026")
+        self._cmd_input.setFixedHeight(32)
+        self._cmd_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: rgba(255,255,255,0.03);
+                color: {WHITE};
+                border: 1px solid {BORDER};
+                border-radius: 6px;
+                padding: 4px 12px;
+                selection-background-color: {PRI_GHO};
+            }}
+            QLineEdit:focus {{
+                border-color: {PRI};
+                background: rgba({_hex_to_rgb_str(PRI)}, 0.04);
+            }}
         """)
         self._cmd_input.returnPressed.connect(self._on_bbg_command_submitted)
         cmd_row.addWidget(self._cmd_input, stretch=1)
 
-        # Mechanical keys for Bloomberg style
-        go_btn = QPushButton("<GO>")
-        go_btn.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
-        go_btn.setFixedWidth(65)
-        go_btn.setFixedHeight(28)
+        go_btn = QPushButton("Run")
+        go_btn.setFont(QFont(FONT_UI, 8, QFont.Weight.Bold))
+        go_btn.setFixedWidth(60)
+        go_btn.setFixedHeight(32)
         go_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        go_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #008800;
-                color: #ffffff;
-                border: 1px solid #00aa00;
-                font-weight: bold;
-            }
-            QPushButton:hover { background-color: #00aa00; }
+        go_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: rgba({_hex_to_rgb_str(GREEN)}, 0.12);
+                color: {GREEN};
+                border: 1px solid rgba({_hex_to_rgb_str(GREEN)}, 0.4);
+                border-radius: 6px;
+            }}
+            QPushButton:hover {{ background: rgba({_hex_to_rgb_str(GREEN)}, 0.25); border-color: {GREEN}; }}
         """)
         go_btn.clicked.connect(self._on_bbg_command_submitted)
         cmd_row.addWidget(go_btn)
 
-        help_btn = QPushButton("<HELP>")
-        help_btn.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
-        help_btn.setFixedWidth(70)
-        help_btn.setFixedHeight(28)
+        help_btn = QPushButton("?")
+        help_btn.setFont(QFont(FONT_UI, 9, QFont.Weight.Bold))
+        help_btn.setFixedSize(32, 32)
         help_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        help_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #b80000;
-                color: #ffffff;
-                border: 1px solid #ff0000;
-                font-weight: bold;
-            }
-            QPushButton:hover { background-color: #ff0000; }
+        help_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: rgba({_hex_to_rgb_str(ACC)}, 0.10);
+                color: {ACC};
+                border: 1px solid rgba({_hex_to_rgb_str(ACC)}, 0.4);
+                border-radius: 6px;
+            }}
+            QPushButton:hover {{ background: rgba({_hex_to_rgb_str(ACC)}, 0.25); border-color: {ACC}; }}
         """)
         help_btn.clicked.connect(lambda: self._cmd_input.setText("HELP"))
         cmd_row.addWidget(help_btn)
 
-        self._conn_status = QLabel("○ INITIALIZING BRIDGE...")
-        self._conn_status.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
-        self._conn_status.setStyleSheet("color: #aaaaaa; background: transparent; padding-left: 6px;")
-        cmd_row.addWidget(self._conn_status)
-
         hdr_lay.addLayout(cmd_row)
 
-        # Row 2: Live Market Ticker Marquee
+        # Row 3: Live Market Ticker Marquee
         ticker_w = QWidget()
-        ticker_w.setFixedHeight(20)
-        ticker_w.setStyleSheet("background-color: #080808; border-top: 1px solid #222222; border-bottom: 1px solid #222222;")
+        ticker_w.setFixedHeight(22)
+        ticker_w.setStyleSheet(f"background: rgba({_hex_to_rgb_str(PRI)}, 0.03); border-top: 1px solid {BORDER}; border-radius: 0px;")
         ticker_lay = QHBoxLayout(ticker_w)
         ticker_lay.setContentsMargins(10, 0, 10, 0)
-        
-        self._ticker_label = QLabel("WATCHLIST SYMBOLS: CONNECTING TO TERMINAL LIVE FEED...")
-        self._ticker_label.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
-        self._ticker_label.setStyleSheet("color: #ffcc00; background: transparent;")
+
+        self._ticker_label = QLabel("WATCHLIST:  Connecting to live feed\u2026")
+        self._ticker_label.setFont(QFont(FONT_DATA, 7, QFont.Weight.Bold))
+        self._ticker_label.setStyleSheet(f"color: {ACC2}; background: transparent;")
         ticker_lay.addWidget(self._ticker_label)
         ticker_lay.addStretch()
-        
+
         hdr_lay.addWidget(ticker_w)
         self._lay.addWidget(hdr_w)
 
@@ -579,10 +540,16 @@ class Mt5Page(OctoPage):
                     import MetaTrader5 as mt5
                     from scripts.trading_risk_manager import TradingRiskManager
                     import numpy as np
-                    
+                    import os
                     if not mt5.initialize():
-                        self._sug_reasoning.setText("Error: MT5 failed to initialize for breakout calculation.")
-                        return
+                        exe_path = r"C:\Program Files\MetaTrader 5\terminal64.exe"
+                        if os.path.exists(exe_path):
+                            if not mt5.initialize(path=exe_path):
+                                self._sug_reasoning.setText("Error: MT5 failed to initialize for breakout calculation.")
+                                return
+                        else:
+                            self._sug_reasoning.setText("Error: MT5 failed to initialize for breakout calculation.")
+                            return
                         
                     matched_sym = tgt_sym
                     for s in self._watchlist_symbols:
@@ -722,38 +689,40 @@ class Mt5Page(OctoPage):
 
     def _build_offline_banner(self):
         self._offline_w = QFrame()
-        self._offline_w.setStyleSheet("""
-            QFrame {
-                background: #000000;
-                border: 2px dashed #ff0000;
-                border-radius: 0px;
-                padding: 20px;
-            }
+        self._offline_w.setStyleSheet(f"""
+            QFrame {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {PANEL}, stop:1 {BG});
+                border: 1px solid rgba({_hex_to_rgb_str(RED)}, 0.4);
+                border-radius: 12px;
+                padding: 24px;
+            }}
         """)
         lay = QVBoxLayout(self._offline_w)
         lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.setSpacing(12)
         
         icon = QLabel("⚠️")
-        icon.setFont(QFont("Courier New", 28))
+        icon.setFont(QFont(FONT_UI, 36))
+        icon.setStyleSheet("background: transparent; border: none;")
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(icon)
         
         title = QLabel("MT5 CONNECTION OFFLINE")
-        title.setFont(QFont("Courier New", 12, QFont.Weight.Bold))
-        title.setStyleSheet("color: #ff0000; background: transparent;")
+        title.setFont(QFont(FONT_UI, 14, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {RED}; background: transparent; border: none; letter-spacing: 1px;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(title)
         
         desc = QLabel(
-            "OCTO Bloomberg Bridge cannot connect to the MetaTrader 5 Terminal.\n\n"
+            "OCTO Bridge cannot connect to the MetaTrader 5 Terminal.\n\n"
             "Diagnostic checklist:\n"
-            "1. MetaTrader 5 terminal is open and authorized (Options -> Expert Advisors -> Allow WebRequest).\n"
-            "2. Ensure the MT5 bridge script 'mt5_mcp_server.py' is running or enabled.\n"
-            "3. Demo or Live account connection is online in the bottom right corner of MT5.\n\n"
+            "• MetaTrader 5 terminal is open and authorized (Options ➔ Expert Advisors ➔ Allow WebRequest).\n"
+            "• Ensure the MT5 bridge script 'mt5_mcp_server.py' is running or enabled.\n"
+            "• Demo or Live account connection is online in MT5.\n\n"
             "Reconnecting..."
         )
-        desc.setFont(QFont("Courier New", 8))
-        desc.setStyleSheet("color: #ffffff; background: transparent;")
+        desc.setFont(QFont(FONT_UI, 9))
+        desc.setStyleSheet(f"color: {TEXT_MED}; background: transparent; border: none; line-height: 1.4;")
         desc.setWordWrap(True)
         desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(desc)
@@ -780,34 +749,29 @@ class Mt5Page(OctoPage):
         self._cards_lay = QGridLayout()
         self._cards_lay.setSpacing(6)
         
-        self._acc_card, self._acc_card_lay = self.card("METRICS ◈ ACCOUNT PROFILE", "#ffaa00")
-        self._bal_card, self._bal_card_lay = self.card("METRICS ◈ BALANCE & EQUITY", "#ffaa00")
-        self._pnl_card, self._pnl_card_lay = self.card("METRICS ◈ FLOATING P&L", "#ffaa00")
-        
-        # Bloomberg theme overrides
-        for card in [self._acc_card, self._bal_card, self._pnl_card]:
-            card.setStyleSheet("background-color: #030303; border: 1px solid #333333; border-radius: 0px;")
+        self._acc_card, self._acc_card_lay = self.card("METRICS ◈ ACCOUNT PROFILE", PRI)
+        self._bal_card, self._bal_card_lay = self.card("METRICS ◈ BALANCE & EQUITY", ACC2)
+        self._pnl_card, self._pnl_card_lay = self.card("METRICS ◈ FLOATING P&L", GREEN)
 
         self._cards_lay.addWidget(self._acc_card, 0, 0)
         self._cards_lay.addWidget(self._bal_card, 0, 1)
         self._cards_lay.addWidget(self._pnl_card, 0, 2)
         
         # Populate initial labels in cards
-        self._acc_lbl = self.lbl("Login: --\nBroker: --\nServer: --\nLeverage: 1:--", 7.5, color="#ffffff")
+        self._acc_lbl = self.lbl("Login: --\nBroker: --\nServer: --\nLeverage: 1:--", 7.5, color=WHITE)
         self._acc_card_lay.addWidget(self._acc_lbl)
         
-        self._bal_lbl = self.lbl("Balance: $0.00\nEquity: $0.00\nFree Margin: $0.00", 7.5, color="#ffffff")
+        self._bal_lbl = self.lbl("Balance: $0.00\nEquity: $0.00\nFree Margin: $0.00", 7.5, color=WHITE)
         self._bal_card_lay.addWidget(self._bal_lbl)
         
-        self._pnl_lbl = self.lbl("$0.00\n(0.00% Margin)", 13, bold=True, color="#00ff00")
+        self._pnl_lbl = self.lbl("$0.00\n(0.00% Margin)", 13, bold=True, color=GREEN)
         self._pnl_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._pnl_card_lay.addWidget(self._pnl_lbl)
         
         left_col.addLayout(self._cards_lay)
 
         # 2. Active Positions Grid
-        pos_w, pos_lay = self.card("POSITIONS ◈ ACTIVE MT5 ORDERS", "#ffaa00")
-        pos_w.setStyleSheet("background-color: #030303; border: 1px solid #333333; border-radius: 0px;")
+        pos_w, pos_lay = self.card("POSITIONS ◈ ACTIVE MT5 ORDERS", PRI)
         
         self._pos_table = QTableWidget(0, 8)
         self._pos_table.setHorizontalHeaderLabels([
@@ -819,27 +783,16 @@ class Mt5Page(OctoPage):
         left_col.addWidget(pos_w)
 
         # 3. Watchlist Grid
-        wl_w, wl_lay = self.card("MARKET WATCH ◈ SECURITIES LIST", "#ffaa00")
-        wl_w.setStyleSheet("background-color: #030303; border: 1px solid #333333; border-radius: 0px;")
+        wl_w, wl_lay = self.card("MARKET WATCH ◈ SECURITIES LIST", PRI)
         
         # Add symbol row
         add_sym_row = QHBoxLayout()
         add_sym_row.setSpacing(4)
-        self._sym_input = self.field("Symbol (e.g. XAUUSD)", height=22)
-        self._sym_input.setStyleSheet("""
-            QLineEdit {
-                background-color: #000000;
-                color: #ffffff;
-                border: 1px solid #555555;
-                padding: 1px 4px;
-            }
-        """)
-        add_btn = self.btn("+ Add", color="#ffcc00", height=22)
-        add_btn.setStyleSheet("QPushButton {background: transparent; color: #ffcc00; border: 1px solid #ffcc00; padding: 0 6px;}")
+        self._sym_input = self.field("Symbol (e.g. XAUUSD)", height=24)
+        add_btn = self.btn("+ Add", color=ACC2, height=24)
         add_btn.clicked.connect(self._add_to_watchlist)
         
-        sync_btn = self.btn("⟳ Sync MT5", color="#ffaa00", height=22)
-        sync_btn.setStyleSheet("QPushButton {background: transparent; color: #ffaa00; border: 1px solid #ffaa00; padding: 0 6px;}")
+        sync_btn = self.btn("⟳ Sync MT5", color=PRI, height=24)
         sync_btn.clicked.connect(self._sync_watchlist_with_mt5)
         
         add_sym_row.addWidget(self._sym_input, stretch=2)
@@ -868,13 +821,12 @@ class Mt5Page(OctoPage):
         split_top.addLayout(left_col, stretch=6)
 
         # Right Column: Embedded Chat Desk - Live Messaging with AI Trading Manager
-        chat_pane, chat_lay = self.card("MSG ◈ AI PORTFOLIO MANAGER & RISK DESK", "#ffaa00")
-        chat_pane.setStyleSheet("background-color: #030303; border: 1px solid #333333; border-radius: 0px;")
+        chat_pane, chat_lay = self.card("MSG ◈ AI PORTFOLIO MANAGER & RISK DESK", PRI)
         
         # Brief description
         sub = QLabel("Coordinating with Live G4 Risk Managers and MT5 Automated Trading Agents...")
-        sub.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
-        sub.setStyleSheet("color: #888888; background: transparent;")
+        sub.setFont(QFont(FONT_UI, 7, QFont.Weight.Bold))
+        sub.setStyleSheet(f"color: {TEXT_DIM}; background: transparent;")
         chat_lay.addWidget(sub)
         
         # Instantiate the ChatWidget directly on the dashboard page
@@ -907,37 +859,45 @@ class Mt5Page(OctoPage):
             "Keep your responses extremely data-driven, mathematically precise, professional, and direct. Use markdown formatting, bullet points, and tables. Avoid generic or speculative financial advice."
         )
         self._embed_chat = ChatWidget(system=sys_prompt)
-        self._embed_chat.setStyleSheet("""
-            QWidget {
-                background-color: #020202;
-                border: 1px solid #222222;
-            }
-            QTextEdit {
-                background-color: #000000;
-                color: #ffffff;
-                border: 1px solid #333333;
-            }
-            QLineEdit {
-                background-color: #000000;
-                color: #ffaa00;
-                border: 1px solid #ffaa00;
-            }
-            QPushButton {
-                background-color: #0a0a0a;
-                color: #ffaa00;
-                border: 1px solid #ffaa00;
-                padding: 0 4px;
-            }
-            QPushButton:hover {
-                background-color: #ffaa00;
-                color: #000000;
-            }
+        self._embed_chat.setStyleSheet(f"""
+            QWidget {{
+                background-color: {PANEL};
+                border: none;
+            }}
+            QTextEdit {{
+                background-color: {DARK};
+                color: {WHITE};
+                border: 1px solid {BORDER};
+                border-radius: 6px;
+                padding: 6px;
+            }}
+            QLineEdit {{
+                background-color: {DARK};
+                color: {WHITE};
+                border: 1px solid {BORDER};
+                border-radius: 6px;
+                padding: 4px 8px;
+            }}
+            QLineEdit:focus {{
+                border-color: {PRI};
+            }}
+            QPushButton {{
+                background-color: rgba({_hex_to_rgb_str(PRI)}, 0.1);
+                color: {PRI};
+                border: 1px solid rgba({_hex_to_rgb_str(PRI)}, 0.4);
+                border-radius: 6px;
+                padding: 0 8px;
+            }}
+            QPushButton:hover {{
+                background-color: rgba({_hex_to_rgb_str(PRI)}, 0.2);
+                border-color: {PRI};
+            }}
         """)
         chat_lay.addWidget(self._embed_chat, stretch=1)
         
         # Initial greeting from Trading Desk
         self._embed_chat._append(
-            f'<div style="color:#ffaa00;margin:2px 0;font-family:\'Courier New\';font-size:8.5pt;"><b>AI Trading Desk:</b> Connection established. '
+            f'<div style="color:{PRI};margin:2px 0;font-family:\'{FONT_UI}\';font-size:8.5pt;"><b>AI Trading Desk:</b> Connection established. '
             f'Real-time risk grids and automated model statistics (TimesFM, Dual Thrust, London Breakouts) are bound cleanly. '
             f'Ask me anything about your current trades or strategies today.</div>'
         )
@@ -950,37 +910,34 @@ class Mt5Page(OctoPage):
         split_bottom.setSpacing(8)
 
         # Left: AI Trading suggestions (including TimesFM and Breakouts)
-        ai_w, ai_lay = self.card("AI PATTERNS ◈ GEMINI & TIMESFM PATTERN ANALYSIS", "#ffaa00")
-        ai_w.setStyleSheet("background-color: #030303; border: 1px solid #333333; border-radius: 0px;")
+        ai_w, ai_lay = self.card("AI PATTERNS ◈ GEMINI & TIMESFM PATTERN ANALYSIS", PRI)
         
         # Inputs row
         ai_inputs = QHBoxLayout()
         ai_inputs.setSpacing(6)
-        ai_inputs.addWidget(self.lbl("Analyze:", 7, bold=True, color="#ffffff"))
+        ai_inputs.addWidget(self.lbl("Analyze:", 7, bold=True, color=WHITE))
         
         self._ai_symbol_cb = QComboBox()
-        self._ai_symbol_cb.setFont(QFont("Courier New", 7))
+        self._ai_symbol_cb.setFont(QFont(FONT_UI, 8))
         self._ai_symbol_cb.setFixedHeight(24)
         self._style_combobox(self._ai_symbol_cb)
         self._ai_symbol_cb.currentTextChanged.connect(self._update_relevant_trading_links)
         ai_inputs.addWidget(self._ai_symbol_cb, stretch=1)
         
-        ai_inputs.addWidget(self.lbl("TF:", 7, bold=True, color="#ffffff"))
+        ai_inputs.addWidget(self.lbl("TF:", 7, bold=True, color=WHITE))
         self._ai_tf_cb = QComboBox()
         self._ai_tf_cb.addItems(["M1", "M5", "M15", "M30", "H1", "H4", "D1"])
         self._ai_tf_cb.setCurrentText("H1")
-        self._ai_tf_cb.setFont(QFont("Courier New", 7))
+        self._ai_tf_cb.setFont(QFont(FONT_UI, 8))
         self._ai_tf_cb.setFixedHeight(24)
         self._style_combobox(self._ai_tf_cb)
         ai_inputs.addWidget(self._ai_tf_cb, stretch=1)
         
-        self._ai_btn = self.btn("✨ Suggest", color="#ffaa00", height=24)
-        self._ai_btn.setStyleSheet("QPushButton {background: transparent; color: #ffaa00; border: 1px solid #ffaa00; padding: 0 4px;}")
+        self._ai_btn = self.btn("✨ Suggest", color=ACC2, height=24)
         self._ai_btn.clicked.connect(self._get_suggestion)
         ai_inputs.addWidget(self._ai_btn, stretch=1)
 
-        self._tf_btn = self.btn("🔮 TFM Forecast", color="#00ff88", height=24)
-        self._tf_btn.setStyleSheet("QPushButton {background: transparent; color: #00ff88; border: 1px solid #00ff88; padding: 0 4px;}")
+        self._tf_btn = self.btn("🔮 TFM Forecast", color=GREEN, height=24)
         self._tf_btn.clicked.connect(self._get_timesfm_forecast)
         ai_inputs.addWidget(self._tf_btn, stretch=2)
         ai_lay.addLayout(ai_inputs)
@@ -989,18 +946,18 @@ class Mt5Page(OctoPage):
         scanner_row = QHBoxLayout()
         scanner_row.setSpacing(6)
         self._auto_scan_cb = QCheckBox("🔔 Continuous Auto-Scan & Alerts")
-        self._auto_scan_cb.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
-        self._auto_scan_cb.setStyleSheet("color: #ffaa00; background: transparent; padding: 2px;")
+        self._auto_scan_cb.setFont(QFont(FONT_UI, 8, QFont.Weight.Bold))
+        self._auto_scan_cb.setStyleSheet(f"color: {ACC2}; background: transparent; padding: 2px;")
         self._auto_scan_cb.stateChanged.connect(self._on_auto_scan_changed)
         scanner_row.addWidget(self._auto_scan_cb)
         
-        self._auto_scan_status = self.lbl("Scanner: IDLE", 7, color="#888888")
+        self._auto_scan_status = self.lbl("Scanner: IDLE", 7, color=TEXT_DIM)
         scanner_row.addWidget(self._auto_scan_status)
         scanner_row.addStretch()
         ai_lay.addLayout(scanner_row)
 
         # AI Result Area
-        self._ai_res_lbl = self.lbl("Select symbol and click Suggestion or TimesFM Forecast to load statistics.", 8, color="#888888", wrap=True)
+        self._ai_res_lbl = self.lbl("Select symbol and click Suggestion or TimesFM Forecast to load statistics.", 8, color=TEXT_MED, wrap=True)
         
         # Structured layout for suggestion output
         self._ai_res_w = QWidget()
@@ -1014,43 +971,43 @@ class Mt5Page(OctoPage):
         sug_metrics.setSpacing(8)
         
         self._sug_dir_w = QWidget()
-        self._sug_dir_w.setStyleSheet("background: #080808; border: 1px solid #333333; border-radius: 0px;")
+        self._sug_dir_w.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px;")
         dir_lay = QVBoxLayout(self._sug_dir_w)
         dir_lay.setContentsMargins(6,4,6,4)
-        dir_lay.addWidget(self.lbl("DIRECTION", 7, color="#888888", bold=True))
-        self._sug_dir_val = self.lbl("WAIT", 13, bold=True, color="#ffaa00")
+        dir_lay.addWidget(self.lbl("DIRECTION", 7, color=TEXT_DIM, bold=True))
+        self._sug_dir_val = self.lbl("WAIT", 13, bold=True, color=ACC2)
         self._sug_dir_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
         dir_lay.addWidget(self._sug_dir_val)
         sug_metrics.addWidget(self._sug_dir_w, stretch=1)
 
         self._sug_conf_w = QWidget()
-        self._sug_conf_w.setStyleSheet("background: #080808; border: 1px solid #333333; border-radius: 0px;")
+        self._sug_conf_w.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px;")
         conf_lay = QVBoxLayout(self._sug_conf_w)
         conf_lay.setContentsMargins(6,4,6,4)
-        conf_lay.addWidget(self.lbl("CONFIDENCE", 7, color="#888888", bold=True))
-        self._sug_conf_val = self.lbl("MEDIUM", 9, bold=True, color="#ffffff")
+        conf_lay.addWidget(self.lbl("CONFIDENCE", 7, color=TEXT_DIM, bold=True))
+        self._sug_conf_val = self.lbl("MEDIUM", 9, bold=True, color=WHITE)
         self._sug_conf_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
         conf_lay.addWidget(self._sug_conf_val)
         sug_metrics.addWidget(self._sug_conf_w, stretch=1)
 
         self._sug_levels_w = QWidget()
-        self._sug_levels_w.setStyleSheet("background: #080808; border: 1px solid #333333; border-radius: 0px;")
+        self._sug_levels_w.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px;")
         lvl_grid = QGridLayout(self._sug_levels_w)
         lvl_grid.setContentsMargins(6,4,6,4)
-        lvl_grid.addWidget(self.lbl("ENTRY", 6.5, color="#888888"), 0, 0)
-        self._sug_entry = self.lbl("--", 8, bold=True, color="#ffffff")
+        lvl_grid.addWidget(self.lbl("ENTRY", 6.5, color=TEXT_DIM), 0, 0)
+        self._sug_entry = self.lbl("--", 8, bold=True, color=WHITE)
         lvl_grid.addWidget(self._sug_entry, 0, 1)
         
-        lvl_grid.addWidget(self.lbl("SL", 6.5, color="#888888"), 1, 0)
-        self._sug_sl = self.lbl("--", 8, bold=True, color="#ff0000")
+        lvl_grid.addWidget(self.lbl("SL", 6.5, color=TEXT_DIM), 1, 0)
+        self._sug_sl = self.lbl("--", 8, bold=True, color=RED)
         lvl_grid.addWidget(self._sug_sl, 1, 1)
 
-        lvl_grid.addWidget(self.lbl("TP", 6.5, color="#888888"), 0, 2)
-        self._sug_tp = self.lbl("--", 8, bold=True, color="#00ff00")
+        lvl_grid.addWidget(self.lbl("TP", 6.5, color=TEXT_DIM), 0, 2)
+        self._sug_tp = self.lbl("--", 8, bold=True, color=GREEN)
         lvl_grid.addWidget(self._sug_tp, 0, 3)
 
-        lvl_grid.addWidget(self.lbl("R:R", 6.5, color="#888888"), 1, 2)
-        self._sug_rr = self.lbl("--", 8, bold=True, color="#ffffff")
+        lvl_grid.addWidget(self.lbl("R:R", 6.5, color=TEXT_DIM), 1, 2)
+        self._sug_rr = self.lbl("--", 8, bold=True, color=WHITE)
         lvl_grid.addWidget(self._sug_rr, 1, 3)
         sug_metrics.addWidget(self._sug_levels_w, stretch=2)
 
@@ -1058,21 +1015,21 @@ class Mt5Page(OctoPage):
 
         # Reasoning block
         self._sug_reason_card = QFrame()
-        self._sug_reason_card.setStyleSheet("background: #030303; border: 1px solid #333333; border-radius: 0px; padding: 6px;")
+        self._sug_reason_card.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px; padding: 6px;")
         reason_lay = QVBoxLayout(self._sug_reason_card)
         reason_lay.setContentsMargins(4,4,4,4)
-        reason_lay.addWidget(self.lbl("AI QUANT & TECH ANALYSIS REASONING", 7.5, bold=True, color="#ffaa00"))
-        self._sug_reasoning = self.lbl("Waiting for analysis request...", 8, color="#ffffff", wrap=True)
+        reason_lay.addWidget(self.lbl("AI QUANT & TECH ANALYSIS REASONING", 7.5, bold=True, color=ACC2))
+        self._sug_reasoning = self.lbl("Waiting for analysis request...", 8, color=WHITE, wrap=True)
         reason_lay.addWidget(self._sug_reasoning)
         self._ai_res_lay.addWidget(self._sug_reason_card)
 
         # Relevant Market News Card
         self._sug_links_card = QFrame()
-        self._sug_links_card.setStyleSheet("background: #030303; border: 1px solid #333333; border-radius: 0px; padding: 6px;")
+        self._sug_links_card.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px; padding: 6px;")
         links_lay = QVBoxLayout(self._sug_links_card)
         links_lay.setContentsMargins(4,4,4,4)
-        links_lay.addWidget(self.lbl("STRATEGY METRICS & CALENDAR CROSS-REFERENCES", 7.5, bold=True, color="#ffaa00"))
-        self._sug_links_lbl = self.lbl("No active symbol selected.", 8, color="#ffffff", wrap=True)
+        links_lay.addWidget(self.lbl("STRATEGY METRICS & CALENDAR CROSS-REFERENCES", 7.5, bold=True, color=ACC2))
+        self._sug_links_lbl = self.lbl("No active symbol selected.", 8, color=WHITE, wrap=True)
         self._sug_links_lbl.setOpenExternalLinks(True)
         links_lay.addWidget(self._sug_links_lbl)
         self._ai_res_lay.addWidget(self._sug_links_card)
@@ -1093,31 +1050,31 @@ class Mt5Page(OctoPage):
         tf_metrics.setSpacing(8)
         
         self._tf_dir_w = QWidget()
-        self._tf_dir_w.setStyleSheet("background: #080808; border: 1px solid #333333; border-radius: 0px;")
+        self._tf_dir_w.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px;")
         tf_dir_lay = QVBoxLayout(self._tf_dir_w)
         tf_dir_lay.setContentsMargins(6,4,6,4)
-        tf_dir_lay.addWidget(self.lbl("EXPECTED TREND", 7, color="#888888", bold=True))
-        self._tf_dir_val = self.lbl("NEUTRAL", 13, bold=True, color="#ffaa00")
+        tf_dir_lay.addWidget(self.lbl("EXPECTED TREND", 7, color=TEXT_DIM, bold=True))
+        self._tf_dir_val = self.lbl("NEUTRAL", 13, bold=True, color=ACC2)
         self._tf_dir_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tf_dir_lay.addWidget(self._tf_dir_val)
         tf_metrics.addWidget(self._tf_dir_w, stretch=1)
 
         self._tf_target_w = QWidget()
-        self._tf_target_w.setStyleSheet("background: #080808; border: 1px solid #333333; border-radius: 0px;")
+        self._tf_target_w.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px;")
         tf_target_lay = QVBoxLayout(self._tf_target_w)
         tf_target_lay.setContentsMargins(6,4,6,4)
-        tf_target_lay.addWidget(self.lbl("TARGET PRICE (+24H)", 7, color="#888888", bold=True))
-        self._tf_target_val = self.lbl("--", 10.5, bold=True, color="#ffffff")
+        tf_target_lay.addWidget(self.lbl("TARGET PRICE (+24H)", 7, color=TEXT_DIM, bold=True))
+        self._tf_target_val = self.lbl("--", 10.5, bold=True, color=WHITE)
         self._tf_target_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tf_target_lay.addWidget(self._tf_target_val)
         tf_metrics.addWidget(self._tf_target_w, stretch=1)
 
         self._tf_move_w = QWidget()
-        self._tf_move_w.setStyleSheet("background: #080808; border: 1px solid #333333; border-radius: 0px;")
+        self._tf_move_w.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px;")
         tf_move_lay = QVBoxLayout(self._tf_move_w)
         tf_move_lay.setContentsMargins(6,4,6,4)
-        tf_move_lay.addWidget(self.lbl("EXPECTED MOVE", 7, color="#888888", bold=True))
-        self._tf_move_val = self.lbl("--", 10.5, bold=True, color="#ffffff")
+        tf_move_lay.addWidget(self.lbl("EXPECTED MOVE", 7, color=TEXT_DIM, bold=True))
+        self._tf_move_val = self.lbl("--", 10.5, bold=True, color=WHITE)
         self._tf_move_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tf_move_lay.addWidget(self._tf_move_val)
         tf_metrics.addWidget(self._tf_move_w, stretch=1)
@@ -1126,10 +1083,10 @@ class Mt5Page(OctoPage):
 
         # Forecast intervals table
         tf_table_card = QFrame()
-        tf_table_card.setStyleSheet("background: #030303; border: 1px solid #333333; border-radius: 0px; padding: 6px;")
+        tf_table_card.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px; padding: 6px;")
         table_card_lay = QVBoxLayout(tf_table_card)
         table_card_lay.setContentsMargins(4,4,4,4)
-        table_card_lay.addWidget(self.lbl("🔮 TIMESFM STEP FORECAST & 80% CONFIDENCE INTERVAL", 7.5, bold=True, color="#ffaa00"))
+        table_card_lay.addWidget(self.lbl("🔮 TIMESFM STEP FORECAST & 80% CONFIDENCE INTERVAL", 7.5, bold=True, color=ACC2))
         
         self._tf_table = QTableWidget(0, 4)
         self._tf_table.setHorizontalHeaderLabels([
@@ -1152,13 +1109,11 @@ class Mt5Page(OctoPage):
         news_tab_lay.setSpacing(6)
 
         # News Table
-        news_card, news_card_lay = self.card("NEWS ◈ LIVE FIN-STREAM", "#ffaa00")
-        news_card.setStyleSheet("background-color: #030303; border: 1px solid #333333; border-radius: 0px;")
+        news_card, news_card_lay = self.card("NEWS ◈ LIVE FIN-STREAM", PRI)
         news_hdr_lay = QHBoxLayout()
-        self._news_status_lbl = self.lbl("Polling latest news...", 7, color="#888888")
+        self._news_status_lbl = self.lbl("Polling latest news...", 7, color=TEXT_DIM)
         
-        ref_news_btn = self.btn("↺ Feed Sync", color="#ffaa00", height=20)
-        ref_news_btn.setStyleSheet("QPushButton {background: transparent; color: #ffaa00; border: 1px solid #ffaa00; padding: 0 4px;}")
+        ref_news_btn = self.btn("↺ Feed Sync", color=PRI, height=20)
         ref_news_btn.clicked.connect(self._refresh_news)
         
         news_hdr_lay.addWidget(self._news_status_lbl)
@@ -1177,10 +1132,9 @@ class Mt5Page(OctoPage):
         news_tab_lay.addWidget(news_card)
 
         # Calendar Table
-        cal_card, cal_card_lay = self.card("CALENDAR ◈ MACROECONOMIC RELEASES", "#ffaa00")
-        cal_card.setStyleSheet("background-color: #030303; border: 1px solid #333333; border-radius: 0px;")
+        cal_card, cal_card_lay = self.card("CALENDAR ◈ MACROECONOMIC RELEASES", ACC2)
         cal_hdr_lay = QHBoxLayout()
-        self._cal_status_lbl = self.lbl("High-impact events", 7, color="#888888")
+        self._cal_status_lbl = self.lbl("High-impact events", 7, color=TEXT_DIM)
         cal_hdr_lay.addWidget(self._cal_status_lbl)
         cal_card_lay.addLayout(cal_hdr_lay)
         
@@ -1207,13 +1161,11 @@ class Mt5Page(OctoPage):
         news_tab_lay.addWidget(cal_card)
 
         # Ollama Macro Insights
-        ollama_card, ollama_card_lay = self.card("INSIGHTS ◈ OLLAMA AI MACRO SUMMARY", "#ffaa00")
-        ollama_card.setStyleSheet("background-color: #030303; border: 1px solid #333333; border-radius: 0px;")
+        ollama_card, ollama_card_lay = self.card("INSIGHTS ◈ OLLAMA AI MACRO SUMMARY", GREEN)
         ollama_hdr_lay = QHBoxLayout()
-        self._ollama_status_lbl = self.lbl("Model: gemma", 7, color="#888888")
+        self._ollama_status_lbl = self.lbl("Model: gemma", 7, color=TEXT_DIM)
         
-        self._ollama_btn = self.btn("✨ Run Analysis", color="#00ff88", height=20)
-        self._ollama_btn.setStyleSheet("QPushButton {background: transparent; color: #00ff88; border: 1px solid #00ff88; padding: 0 4px;}")
+        self._ollama_btn = self.btn("✨ Run Analysis", color=GREEN, height=20)
         self._ollama_btn.clicked.connect(lambda: self._generate_ollama_summary())
         
         ollama_hdr_lay.addWidget(self._ollama_status_lbl)
@@ -1224,15 +1176,15 @@ class Mt5Page(OctoPage):
         self._ollama_insights_box = QTextEdit()
         self._ollama_insights_box.setReadOnly(True)
         self._ollama_insights_box.setFixedHeight(120)
-        self._ollama_insights_box.setFont(QFont("Courier New", 7))
-        self._ollama_insights_box.setStyleSheet("""
-            QTextEdit {
-                background: #000000;
-                color: #ffffff;
-                border: 1px solid #222222;
-                border-radius: 0px;
-                padding: 4px;
-            }
+        self._ollama_insights_box.setFont(QFont(FONT_UI, 8))
+        self._ollama_insights_box.setStyleSheet(f"""
+            QTextEdit {{
+                background: {DARK};
+                color: {WHITE};
+                border: 1px solid {BORDER};
+                border-radius: 6px;
+                padding: 6px;
+            }}
         """)
         self._ollama_insights_box.setPlaceholderText(
             "Click Run Analysis to let local Ollama synthesize economic releases and correlated headlines..."
@@ -1242,31 +1194,336 @@ class Mt5Page(OctoPage):
 
         split_bottom.addWidget(news_tab_w, stretch=4)
         self._dash_lay.addLayout(split_bottom)
-        
+
         self._lay.addWidget(self._dash_w)
 
-    def _style_table(self, t: QTableWidget):
-        t.setFont(QFont("Courier New", 8))
-        t.setStyleSheet(f"""
+    def _build_octopro_panel(self):
+        """OCTO-Pro v7.5 — 3-Tier Pipeline Status Panel."""
+        panel_w = QFrame()
+        panel_w.setStyleSheet(
+            "QFrame { background-color: #020a05; border: 1px solid #005533; border-radius: 0px; }"
+        )
+        panel_lay = QVBoxLayout(panel_w)
+        panel_lay.setContentsMargins(8, 6, 8, 6)
+        panel_lay.setSpacing(6)
+
+        # ── Header ───────────────────────────────────────────────────────────
+        hdr_row = QHBoxLayout()
+        title = QLabel("◈  OCTO-PRO v7.5  —  MULTI-AGENT ORCHESTRATION HUB")
+        title.setFont(QFont(FONT_UI, 9, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {GREEN}; background: transparent; border: none; letter-spacing: 0.5px;")
+        hdr_row.addWidget(title)
+        hdr_row.addStretch()
+        self._octopro_ts_lbl = QLabel("--")
+        self._octopro_ts_lbl.setFont(QFont(FONT_UI, 8))
+        self._octopro_ts_lbl.setStyleSheet(f"color: {TEXT_DIM}; background: transparent; border: none;")
+        hdr_row.addWidget(self._octopro_ts_lbl)
+        panel_lay.addLayout(hdr_row)
+
+        # ── Row 1: 3-Tier Pipeline Status ────────────────────────────────────
+        tier_row = QHBoxLayout()
+        tier_row.setSpacing(6)
+
+        tier_specs = [
+            ("TIER 1", "SENSOR", "MT5 Whale v7.5\nM5 Tick Stream"),
+            ("TIER 2", "TELEMETRY", "Hermes + Watchdog\nJSON Pipe"),
+            ("TIER 3", "STRATEGY", "Specialists + CVXPY\nCVaR Solver"),
+        ]
+        self._tier_status_lbls = []
+        self._tier_lat_lbls    = []
+
+        for tier_id, tier_name, tier_desc in tier_specs:
+            card = QFrame()
+            card.setStyleSheet(f"""
+                QFrame {{
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {PANEL2}, stop:1 {DARK});
+                    border: 1px solid rgba({_hex_to_rgb_str(GREEN)}, 0.3);
+                    border-radius: 6px;
+                }}
+            """)
+            card_lay = QVBoxLayout(card)
+            card_lay.setContentsMargins(8, 6, 8, 6)
+            card_lay.setSpacing(2)
+
+            top = QHBoxLayout()
+            id_lbl = QLabel(tier_id)
+            id_lbl.setFont(QFont(FONT_UI, 7, QFont.Weight.Bold))
+            id_lbl.setStyleSheet(f"color: {ACC2}; background: transparent; border: none;")
+            top.addWidget(id_lbl)
+            top.addStretch()
+
+            status_lbl = QLabel("IDLE")
+            status_lbl.setFont(QFont(FONT_UI, 7, QFont.Weight.Bold))
+            status_lbl.setStyleSheet(f"color: {TEXT_DIM}; background: transparent; border: none;")
+            top.addWidget(status_lbl)
+            self._tier_status_lbls.append(status_lbl)
+            card_lay.addLayout(top)
+
+            name_lbl = QLabel(tier_name)
+            name_lbl.setFont(QFont(FONT_UI, 9, QFont.Weight.Bold))
+            name_lbl.setStyleSheet(f"color: {WHITE}; background: transparent; border: none;")
+            card_lay.addWidget(name_lbl)
+
+            desc_lbl = QLabel(tier_desc)
+            desc_lbl.setFont(QFont(FONT_UI, 7))
+            desc_lbl.setStyleSheet(f"color: {TEXT_DIM}; background: transparent; border: none;")
+            card_lay.addWidget(desc_lbl)
+
+            lat_lbl = QLabel("-- ms")
+            lat_lbl.setFont(QFont(FONT_DATA, 7, QFont.Weight.Bold))
+            lat_lbl.setStyleSheet(f"color: {GREEN}; background: transparent; border: none;")
+            card_lay.addWidget(lat_lbl)
+            self._tier_lat_lbls.append(lat_lbl)
+
+            tier_row.addWidget(card, stretch=1)
+
+        panel_lay.addLayout(tier_row)
+
+        # ── Row 2: Watchdog Strip + Specialist Cards ──────────────────────────
+        mid_row = QHBoxLayout()
+        mid_row.setSpacing(6)
+
+        # Watchdog status strip
+        wdg_frame = QFrame()
+        wdg_frame.setStyleSheet(f"""
+            QFrame {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {PANEL2}, stop:1 {DARK});
+                border: 1px solid rgba({_hex_to_rgb_str(ACC2)}, 0.3);
+                border-radius: 6px;
+            }}
+        """)
+        wdg_lay = QVBoxLayout(wdg_frame)
+        wdg_lay.setContentsMargins(8, 6, 8, 6)
+        wdg_lay.setSpacing(3)
+        wdg_title = QLabel("WATCHDOG PIPE  ◈  MT5 TELEMETRY STREAM")
+        wdg_title.setFont(QFont(FONT_UI, 8, QFont.Weight.Bold))
+        wdg_title.setStyleSheet(f"color: {ACC2}; background: transparent; border: none; letter-spacing: 0.5px;")
+        wdg_lay.addWidget(wdg_title)
+
+        wdg_grid = QGridLayout()
+        wdg_grid.setSpacing(4)
+        wdg_labels = [
+            ("STATUS",    "_wdg_status_val"),
+            ("SYMBOL",    "_wdg_symbol_val"),
+            ("LAST READ", "_wdg_time_val"),
+            ("LATENCY",   "_wdg_lat_val"),
+            ("EVENTS",    "_wdg_events_val"),
+            ("RETRIES",   "_wdg_retry_val"),
+        ]
+        for idx, (label_text, attr_name) in enumerate(wdg_labels):
+            row, col = divmod(idx, 2)
+            lbl = QLabel(label_text + ":")
+            lbl.setFont(QFont(FONT_UI, 7))
+            lbl.setStyleSheet(f"color: {TEXT_DIM}; background: transparent; border: none;")
+            val = QLabel("--")
+            val.setFont(QFont(FONT_DATA, 7, QFont.Weight.Bold))
+            val.setStyleSheet(f"color: {WHITE}; background: transparent; border: none;")
+            setattr(self, attr_name, val)
+            wdg_grid.addWidget(lbl, row, col * 2)
+            wdg_grid.addWidget(val, row, col * 2 + 1)
+
+        wdg_lay.addLayout(wdg_grid)
+        mid_row.addWidget(wdg_frame, stretch=2)
+
+        # Specialist cards (compact symbol grid)
+        spec_frame = QFrame()
+        spec_frame.setStyleSheet(f"""
+            QFrame {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {PANEL2}, stop:1 {DARK});
+                border: 1px solid rgba({_hex_to_rgb_str(PRI)}, 0.3);
+                border-radius: 6px;
+            }}
+        """)
+        spec_outer = QVBoxLayout(spec_frame)
+        spec_outer.setContentsMargins(8, 6, 8, 6)
+        spec_outer.setSpacing(3)
+        spec_title = QLabel("SYMBOL SPECIALISTS  ◈  TRADE INTENT CONTRACTS")
+        spec_title.setFont(QFont(FONT_UI, 8, QFont.Weight.Bold))
+        spec_title.setStyleSheet(f"color: {PRI}; background: transparent; border: none; letter-spacing: 0.5px;")
+        spec_outer.addWidget(spec_title)
+
+        self._specialist_grid = QGridLayout()
+        self._specialist_grid.setSpacing(3)
+        self._specialist_cards: dict[str, dict] = {}
+
+        _SPECIALIST_SYMBOLS = [
+            "XAUUSD+", "NAS100",  "GBPUSD+", "EURUSD+",
+            "USDJPY+", "AUDUSD+", "BTCUSD",  "CL-OIL",
+        ]
+        for idx, sym in enumerate(_SPECIALIST_SYMBOLS):
+            row, col = divmod(idx, 4)
+            sym_card = QFrame()
+            sym_card.setStyleSheet(f"""
+                QFrame {{
+                    background: {DARK};
+                    border: 1px solid {BORDER};
+                    border-radius: 6px;
+                    padding: 4px;
+                }}
+            """)
+            sym_lay = QVBoxLayout(sym_card)
+            sym_lay.setContentsMargins(4, 3, 4, 3)
+            sym_lay.setSpacing(1)
+
+            sym_lbl = QLabel(sym)
+            sym_lbl.setFont(QFont(FONT_UI, 8, QFont.Weight.Bold))
+            sym_lbl.setStyleSheet(f"color: {WHITE}; background: transparent; border: none;")
+            sym_lay.addWidget(sym_lbl)
+
+            intent_lbl = QLabel("IDLE")
+            intent_lbl.setFont(QFont(FONT_UI, 7, QFont.Weight.Bold))
+            intent_lbl.setStyleSheet(f"color: {TEXT_DIM}; background: transparent; border: none;")
+            sym_lay.addWidget(intent_lbl)
+
+            lot_lbl = QLabel("lot: --")
+            lot_lbl.setFont(QFont(FONT_DATA, 7))
+            lot_lbl.setStyleSheet(f"color: {TEXT_DIM}; background: transparent; border: none;")
+            sym_lay.addWidget(lot_lbl)
+
+            self._specialist_cards[sym] = {
+                "frame":  sym_card,
+                "intent": intent_lbl,
+                "lot":    lot_lbl,
+            }
+            self._specialist_grid.addWidget(sym_card, row, col)
+
+        spec_outer.addLayout(self._specialist_grid)
+        mid_row.addWidget(spec_frame, stretch=5)
+
+        panel_lay.addLayout(mid_row)
+
+        # ── Row 3: CVXPY Allocation Panel ─────────────────────────────────────
+        alloc_frame = QFrame()
+        alloc_frame.setStyleSheet(f"""
+            QFrame {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {PANEL2}, stop:1 {DARK});
+                border: 1px solid {BORDER};
+                border-radius: 8px;
+            }}
+        """)
+        alloc_outer = QVBoxLayout(alloc_frame)
+        alloc_outer.setContentsMargins(8, 6, 8, 6)
+        alloc_outer.setSpacing(4)
+
+        alloc_hdr = QHBoxLayout()
+        alloc_title = QLabel("CENTRAL RISK MANAGER  ◈  MEAN-CVaR CONVEX ALLOCATION SOLVER  (β=0.95)")
+        alloc_title.setFont(QFont(FONT_UI, 8, QFont.Weight.Bold))
+        alloc_title.setStyleSheet(f"color: {ACC2}; background: transparent; border: none; letter-spacing: 0.5px;")
+        alloc_hdr.addWidget(alloc_title)
+        alloc_hdr.addStretch()
+
+        self._cvxpy_status_lbl = QLabel("STATUS: IDLE")
+        self._cvxpy_status_lbl.setFont(QFont(FONT_UI, 8, QFont.Weight.Bold))
+        self._cvxpy_status_lbl.setStyleSheet(f"color: {TEXT_DIM}; background: transparent; border: none;")
+        alloc_hdr.addWidget(self._cvxpy_status_lbl)
+
+        self._cvxpy_lat_lbl = QLabel("-- ms")
+        self._cvxpy_lat_lbl.setFont(QFont(FONT_DATA, 8, QFont.Weight.Bold))
+        self._cvxpy_lat_lbl.setStyleSheet(f"color: {GREEN}; background: transparent; border: none;")
+        alloc_hdr.addWidget(self._cvxpy_lat_lbl)
+        alloc_outer.addLayout(alloc_hdr)
+
+        alloc_body = QHBoxLayout()
+        alloc_body.setSpacing(8)
+
+        # Portfolio weights table
+        self._cvxpy_table = QTableWidget(0, 4)
+        self._cvxpy_table.setHorizontalHeaderLabels(["Symbol", "Weight", "Lot Scale", "Direction"])
+        self._cvxpy_table.setFont(QFont(FONT_DATA, 7))
+        self._cvxpy_table.setFixedHeight(100)
+        self._cvxpy_table.setStyleSheet(f"""
             QTableWidget {{
-                background: #000d14;
+                background: {DARK};
                 color: {WHITE};
                 gridline-color: {BORDER};
                 border: 1px solid {BORDER};
-                border-radius: 4px;
+                border-radius: 6px;
             }}
             QHeaderView::section {{
                 background: {PANEL2};
                 color: {PRI};
                 padding: 4px;
+                border: none;
+                border-bottom: 1px solid {BORDER_B};
+                font-weight: bold;
+                font-size: 7pt;
+                font-family: '{FONT_UI}';
+            }}
+            QTableWidget::item {{ padding: 2px; background: transparent; }}
+        """)
+        self._cvxpy_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._cvxpy_table.verticalHeader().setVisible(False)
+        alloc_body.addWidget(self._cvxpy_table, stretch=4)
+
+        # CVaR / VaR metrics box
+        risk_box = QFrame()
+        risk_box.setStyleSheet(f"""
+            QFrame {{
+                background: {DARK};
                 border: 1px solid {BORDER};
+                border-radius: 6px;
+            }}
+        """)
+        risk_lay = QVBoxLayout(risk_box)
+        risk_lay.setContentsMargins(8, 6, 8, 6)
+        risk_lay.setSpacing(4)
+        risk_lay.addWidget(QLabel("RISK METRICS"))
+        risk_lay.itemAt(0).widget().setFont(QFont(FONT_UI, 8, QFont.Weight.Bold))
+        risk_lay.itemAt(0).widget().setStyleSheet(f"color: {ACC2}; background: transparent; border: none;")
+
+        metrics = [
+            ("CVaR (β=0.95)", "_cvxpy_cvar_val"),
+            ("VaR  (β=0.95)", "_cvxpy_var_val"),
+            ("Assets",        "_cvxpy_n_val"),
+            ("Solver",        "_cvxpy_solver_val"),
+        ]
+        for label_text, attr_name in metrics:
+            row_lay = QHBoxLayout()
+            row_lay.setSpacing(4)
+            lbl = QLabel(label_text + ":")
+            lbl.setFont(QFont(FONT_UI, 7))
+            lbl.setStyleSheet(f"color: {TEXT_DIM}; background: transparent; border: none;")
+            val = QLabel("--")
+            val.setFont(QFont(FONT_DATA, 7, QFont.Weight.Bold))
+            val.setStyleSheet(f"color: {GREEN}; background: transparent; border: none;")
+            setattr(self, attr_name, val)
+            row_lay.addWidget(lbl)
+            row_lay.addStretch()
+            row_lay.addWidget(val)
+            risk_lay.addLayout(row_lay)
+
+        alloc_body.addWidget(risk_box, stretch=2)
+        alloc_outer.addLayout(alloc_body)
+        panel_lay.addWidget(alloc_frame)
+
+        self._lay.addWidget(panel_w)
+
+    def _style_table(self, t: QTableWidget):
+        t.setFont(QFont(FONT_DATA, 8))
+        t.setStyleSheet(f"""
+            QTableWidget {{
+                background: {DARK};
+                color: {WHITE};
+                gridline-color: {BORDER};
+                border: 1px solid {BORDER};
+                border-radius: 6px;
+            }}
+            QHeaderView::section {{
+                background: {PANEL2};
+                color: {PRI};
+                padding: 6px;
+                border: none;
+                border-bottom: 1px solid {BORDER_B};
                 font-weight: bold;
                 font-size: 8pt;
-                font-family: 'Courier New';
+                font-family: '{FONT_UI}';
             }}
             QTableWidget::item {{
-                padding: 2px;
-                background: {PANEL};
+                padding: 4px;
+                background: transparent;
+            }}
+            QTableWidget::item:hover {{
+                background: rgba({_hex_to_rgb_str(PRI)}, 0.05);
             }}
         """)
         t.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -1274,21 +1531,24 @@ class Mt5Page(OctoPage):
         t.setFixedHeight(140)
 
     def _style_combobox(self, cb: QComboBox):
+        cb.setFont(QFont(FONT_UI, 8))
         cb.setStyleSheet(f"""
             QComboBox {{
-                background: #000d14;
+                background: {PANEL2};
                 color: {WHITE};
                 border: 1px solid {BORDER};
-                border-radius: 3px;
-                padding: 2px 6px;
+                border-radius: 6px;
+                padding: 4px 10px;
             }}
             QComboBox::drop-down {{
                 border: none;
+                width: 20px;
             }}
             QComboBox QAbstractItemView {{
-                background: {PANEL};
+                background: {PANEL2};
                 color: {TEXT};
-                border: 1px solid {BORDER};
+                border: 1px solid {BORDER_B};
+                border-radius: 6px;
                 selection-background-color: {PRI_GHO};
                 selection-color: {PRI};
             }}
@@ -1315,8 +1575,8 @@ class Mt5Page(OctoPage):
             except Exception as e:
                 account_err = str(e)
 
-            # Fallback to plain account metrics if summary fails but is connected
-            if not portfolio and not account_err:
+            # Fallback to plain account metrics if summary fails
+            if not portfolio:
                 try:
                     m_res = call_tool("metatrader5", "get_account_metrics", {})
                     if not m_res.startswith("[MCP]"):
@@ -1327,6 +1587,7 @@ class Mt5Page(OctoPage):
                                 "open_positions": 0,
                                 "positions": []
                             }
+                            account_err = None  # Clear error since fallback succeeded!
                 except Exception:
                     pass
 
@@ -1440,8 +1701,8 @@ class Mt5Page(OctoPage):
 
             # Add close button
             close_b = QPushButton("✕ Close")
-            close_b.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
-            close_b.setStyleSheet(f"QPushButton {{background: transparent; color: {RED}; border: 1px solid {RED}; border-radius: 2px; padding: 1px 4px;}} QPushButton:hover {{background: #2b0c13;}}")
+            close_b.setFont(QFont(FONT_UI, 7, QFont.Weight.Bold))
+            close_b.setStyleSheet(f"QPushButton {{background: transparent; color: {RED}; border: 1px solid {RED}; border-radius: 4px; padding: 2px 6px;}} QPushButton:hover {{background: rgba({_hex_to_rgb_str(RED)}, 0.15);}}")
             close_b.setCursor(Qt.CursorShape.PointingHandCursor)
             close_b.clicked.connect(lambda _, t=ticket: self._close_position(t))
             self._pos_table.setCellWidget(idx, 7, close_b)
@@ -1483,16 +1744,16 @@ class Mt5Page(OctoPage):
 
             # AI Suggest button
             sug_b = QPushButton("⚡ AI")
-            sug_b.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
-            sug_b.setStyleSheet(f"QPushButton {{background: transparent; color: {ACC2}; border: 1px solid {ACC2}; border-radius: 2px; padding: 1px 4px;}} QPushButton:hover {{background: #2d2600;}}")
+            sug_b.setFont(QFont(FONT_UI, 7, QFont.Weight.Bold))
+            sug_b.setStyleSheet(f"QPushButton {{background: transparent; color: {ACC2}; border: 1px solid {ACC2}; border-radius: 4px; padding: 2px 6px;}} QPushButton:hover {{background: rgba({_hex_to_rgb_str(ACC2)}, 0.15);}}")
             sug_b.setCursor(Qt.CursorShape.PointingHandCursor)
             sug_b.clicked.connect(lambda _, s=sym: self._trigger_ai_for_symbol(s))
             self._wl_table.setCellWidget(idx, 4, sug_b)
 
             # Delete button
             del_b = QPushButton("✕")
-            del_b.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
-            del_b.setStyleSheet(f"QPushButton {{background: transparent; color: {RED}; border: 1px solid {RED}; border-radius: 2px; padding: 1px 4px;}} QPushButton:hover {{background: #2b0c13;}}")
+            del_b.setFont(QFont(FONT_UI, 7, QFont.Weight.Bold))
+            del_b.setStyleSheet(f"QPushButton {{background: transparent; color: {RED}; border: 1px solid {RED}; border-radius: 4px; padding: 2px 6px;}} QPushButton:hover {{background: rgba({_hex_to_rgb_str(RED)}, 0.15);}}")
             del_b.setCursor(Qt.CursorShape.PointingHandCursor)
             del_b.clicked.connect(lambda _, s=sym: self._remove_from_watchlist(s))
             self._wl_table.setCellWidget(idx, 5, del_b)
@@ -1540,7 +1801,10 @@ class Mt5Page(OctoPage):
                     active_symbols = [str(s).strip() for s in active_symbols if s]
                     if active_symbols:
                         # User only wants the symbols they chose in their MT5 Market Watch
-                        target_symbols = ["XAUUSD+", "XAUEUR+", "EURUSD+", "CL-OIL", "BTCUSD"]
+                        target_symbols = [
+                            "XAUUSD+", "XAUEUR+", "EURUSD+", "GBPUSD+", "USDJPY+", "AUDUSD+", "NAS100", "BTCUSD", "CL-OIL",
+                            "XAUUSD", "XAUEUR", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "BTCUSD"
+                        ]
                         filtered = [s for s in active_symbols if s in target_symbols]
                         if filtered:
                             self._watchlist_symbols = sorted(list(set(filtered)))
@@ -1762,7 +2026,7 @@ class Mt5Page(OctoPage):
 
     def _update_relevant_trading_links(self, symbol: str):
         if not symbol:
-            self._sug_links_lbl.setText('<div style="color: #888888; font-style: italic; font-family: \'Courier New\'; font-size: 8pt;">No active symbol selected.</div>')
+            self._sug_links_lbl.setText(f'<div style="color: {TEXT_DIM}; font-style: italic; font-family: \'{FONT_UI}\'; font-size: 8pt;">No active symbol selected.</div>')
             return
             
         target_currencies = set()
@@ -1862,12 +2126,12 @@ class Mt5Page(OctoPage):
             news_html = f'<div style="color: #888888; font-style: italic; padding: 4px;">No matching headlines found. <a href="https://www.forexfactory.com/news" style="color: #8ab4f8; text-decoration: underline;">View All Market News</a></div>'
             
         final_html = f"""
-        <div style="font-family: 'Courier New'; font-size: 8pt; line-height: 1.4;">
-            <div style="margin-bottom: 6px; color: #8ab4f8; font-weight: bold; border-bottom: 1px solid #1a2f3f; padding-bottom: 2px;">
+        <div style="font-family: '{FONT_UI}'; font-size: 8.5pt; line-height: 1.4;">
+            <div style="margin-bottom: 6px; color: {PRI}; font-weight: bold; border-bottom: 1px solid {BORDER}; padding-bottom: 2px;">
                 📅 UPCOMING MACRO EVENTS ({", ".join(target_currencies) if target_currencies else symbol})
             </div>
             {cal_html}
-            <div style="margin-top: 10px; margin-bottom: 6px; color: #00ff88; font-weight: bold; border-bottom: 1px solid #1a2f3f; padding-bottom: 2px;">
+            <div style="margin-top: 10px; margin-bottom: 6px; color: {GREEN}; font-weight: bold; border-bottom: 1px solid {BORDER}; padding-bottom: 2px;">
                 📰 CORRELATED FINANCIAL HEADLINES
             </div>
             {news_html}
@@ -2357,3 +2621,292 @@ class Mt5Page(OctoPage):
         except Exception:
             pass
         dialog.exec()
+
+    # ── OCTO-Pro v7.5 refresh pipeline ────────────────────────────────────────
+
+    def _refresh_octopro(self):
+        """Background thread: poll watchdog pipe + run CVXPY solver, emit signals."""
+        threading.Thread(target=self._octopro_thread, daemon=True).start()
+
+    def _octopro_thread(self):
+        import sys, os, json
+        _sd = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts")
+        if _sd not in sys.path:
+            sys.path.insert(0, _sd)
+
+        # ── Tier 2: Watchdog stats ─────────────────────────────────────────
+        try:
+            from watchdog_telemetry_pipe import get_pipe_stats, get_latest_payload
+            stats   = get_pipe_stats()
+            payload = get_latest_payload()
+            self._watchdog_sig.emit({"stats": stats, "payload": payload})
+        except Exception as exc:
+            self._watchdog_sig.emit({"stats": {
+                "status": "ERROR", "last_symbol": str(exc),
+                "last_update": "--", "last_latency_ms": 0,
+                "total_events": 0, "retry_count": 0, "errors": 1,
+            }, "payload": {}})
+
+        # ── Tier 3: CVXPY allocation from current watchlist ────────────────
+        try:
+            from cvxpy_risk_solver import solve_portfolio
+            
+            # Read from volume_profile_live.json
+            live_data = {}
+            try:
+                vp_path = os.path.join(_sd, "volume_profile_live.json")
+                if os.path.exists(vp_path):
+                    with open(vp_path, "r", encoding="utf-8") as f:
+                        live_data = json.load(f)
+            except Exception as e:
+                print(f"[MT5 Page] Error loading volume_profile_live.json: {e}")
+
+            symbols_data = live_data.get("symbols", {})
+            intents = []
+            specialist_updates = {}
+            
+            def clip(val, low, high):
+                return min(max(val, low), high)
+
+            for sym in getattr(self, "_watchlist_symbols", []):
+                sym_clean = sym.replace("+", "")
+                
+                # Try to locate key matching sym_clean
+                s_data = None
+                for k, v in symbols_data.items():
+                    if k.replace("+", "") == sym_clean:
+                        s_data = v
+                        break
+                
+                direction = "WATCH"
+                signal_str = 0.5
+                vol_est = 0.002
+                base_lot = 0.01
+                rvol = 1.0
+                whale_state = "LOW"
+                
+                if s_data:
+                    bias = s_data.get("bias", "").upper()
+                    vol_info = s_data.get("volume", {})
+                    rvol = vol_info.get("ratio_vs_avg", 1.0)
+                    whale_info = s_data.get("whale", {})
+                    volatility_ratio = whale_info.get("volatility_ratio_vr", 0.5)
+                    dyn_alpha = whale_info.get("dynamic_alpha", 0.01)
+                    whale_state = whale_info.get("state", "").upper()
+                    
+                    # Core Strategy Rules:
+                    # 1. Stock Indices/Metals (M15 Pure Volume wick-absorption)
+                    # 2. Forex (H1 Robust RSI & EMA Plateau)
+                    is_forex = any(x in sym_clean for x in ["EUR", "GBP", "USD", "JPY", "AUD"]) and "NAS" not in sym_clean and "OIL" not in sym_clean
+                    
+                    # Direction bias determination from live sentiment / POC position
+                    if "ABOVE_VAH" in bias or "ABOVE_POC" in bias or "BULLISH" in bias:
+                        direction = "BUY"
+                    elif "BELOW_VAL" in bias or "BELOW_POC" in bias or "BEARISH" in bias:
+                        direction = "SELL"
+                    else:
+                        direction = "WATCH"
+                        
+                    if is_forex:
+                        # RSI & EMA Crossover dynamic confidence
+                        base_conf = 0.5
+                        if "HIGH" in whale_state or volatility_ratio > 1.0:
+                            base_conf += 0.2
+                        elif "MED" in whale_state or volatility_ratio > 0.7:
+                            base_conf += 0.1
+                        
+                        if rvol > 1.1:
+                            base_conf += 0.15
+                        elif rvol < 0.6:
+                            base_conf -= 0.1
+                            
+                        signal_str = clip(base_conf, 0.1, 0.95)
+                        vol_est = clip(volatility_ratio * 0.002, 0.0005, 0.01)
+                        base_lot = 0.01 if signal_str < 0.6 else (0.02 if signal_str < 0.8 else 0.03)
+                    else:
+                        # Pure Volume wick-absorption confidence
+                        base_conf = 0.4
+                        if rvol > 1.2:
+                            base_conf += 0.25
+                        if "HIGH" in whale_state or dyn_alpha > 0.02:
+                            base_conf += 0.2
+                            
+                        signal_str = clip(base_conf, 0.1, 0.95)
+                        vol_est = clip(volatility_ratio * 0.004, 0.001, 0.02)
+                        base_lot = 0.01 if signal_str < 0.5 else (0.02 if signal_str < 0.75 else 0.05)
+                
+                # Solver expects BUY or SELL
+                cvxpy_dir = "BUY" if direction == "WATCH" else direction
+                cvxpy_sig = 0.05 if direction == "WATCH" else signal_str
+                
+                intents.append({
+                    "symbol":     sym,
+                    "direction":  cvxpy_dir,
+                    "base_lot":   base_lot,
+                    "signal_str": cvxpy_sig,
+                    "vol_est":    vol_est,
+                })
+                
+                specialist_updates[sym] = {
+                    "direction":  direction,
+                    "signal_str": signal_str,
+                    "base_lot":   base_lot,
+                    "rvol":       rvol,
+                    "whale_state": whale_state
+                }
+                
+            if len(intents) >= 2:
+                result = solve_portfolio(intents)
+                result["specialist_updates"] = specialist_updates
+                self._cvxpy_sig.emit(result)
+        except Exception as exc:
+            self._cvxpy_sig.emit({
+                "weights": {}, "cvar": 0.0, "var": 0.0,
+                "lot_scales": {}, "status": f"ERROR:{exc}",
+                "latency_ms": 0.0, "timestamp": "--", "n_assets": 0,
+                "specialist_updates": {}
+            })
+
+    def _on_watchdog_updated(self, data: dict):
+        """Update Tier 1/2 watchdog strip and tier status badges."""
+        self._watchdog_last = data
+        stats = data.get("stats", {})
+
+        status = stats.get("status", "IDLE")
+        color  = "#00ff88" if status == "WATCHING" else ("#ff3333" if status == "ERROR" else "#888888")
+
+        # Tier badges
+        tier1_ok = status == "WATCHING"
+        tier2_ok = status == "WATCHING"
+        for idx, (ok, lat) in enumerate([(tier1_ok, "--"), (tier2_ok, f"{stats.get('last_latency_ms', 0):.1f}")]):
+            badge_color = "#00ff88" if ok else "#888888"
+            self._tier_status_lbls[idx].setText("LIVE" if ok else "IDLE")
+            self._tier_status_lbls[idx].setStyleSheet(f"color: {badge_color}; background: transparent; border: none;")
+            self._tier_lat_lbls[idx].setText(f"{lat} ms")
+
+        # Watchdog strip values
+        self._wdg_status_val.setText(status)
+        self._wdg_status_val.setStyleSheet(f"color: {color}; background: transparent; border: none;")
+        self._wdg_symbol_val.setText(stats.get("last_symbol", "--"))
+        self._wdg_time_val.setText(stats.get("last_update", "--"))
+        self._wdg_lat_val.setText(f"{stats.get('last_latency_ms', 0):.2f} ms")
+        self._wdg_events_val.setText(str(stats.get("total_events", 0)))
+        self._wdg_retry_val.setText(str(stats.get("retry_count", 0)))
+
+        # Timestamp
+        self._octopro_ts_lbl.setText(f"last sync: {stats.get('last_update', '--')}")
+
+        # If we have a live payload, update the relevant specialist card
+        payload = data.get("payload", {})
+        sym = payload.get("symbol", "")
+        if sym in self._specialist_cards:
+            card_data = self._specialist_cards[sym]
+            wick_frac = payload.get("wick_vol_frac", 0.0)
+            rvol      = payload.get("rvol", 1.0)
+            direction = "BUY" if rvol > 1.2 and wick_frac > 0.5 else "WATCH"
+            d_color   = "#00ff88" if direction == "BUY" else "#ffaa00"
+            card_data["intent"].setText(direction)
+            card_data["intent"].setStyleSheet(f"color: {d_color}; background: transparent; border: none;")
+            card_data["frame"].setStyleSheet(
+                f"QFrame {{ background: #00120a; border: 1px solid {'#00aa44' if direction == 'BUY' else '#555500'}; border-radius: 6px; padding: 4px; }}"
+            )
+
+    def _on_cvxpy_updated(self, data: dict):
+        """Update CVXPY allocation panel and Tier 3 badge."""
+        self._cvxpy_last = data
+        status     = data.get("status", "IDLE")
+        lat        = data.get("latency_ms", 0.0)
+        cvar       = data.get("cvar", 0.0)
+        var        = data.get("var", 0.0)
+        weights    = data.get("weights", {})
+        lot_scales = data.get("lot_scales", {})
+        n_assets   = data.get("n_assets", 0)
+
+        ok = status in ("OPTIMAL", "DEGRADED")
+
+        # Tier 3 badge
+        self._tier_status_lbls[2].setText("LIVE" if ok else "IDLE")
+        badge_color = "#00ff88" if ok else "#888888"
+        self._tier_status_lbls[2].setStyleSheet(f"color: {badge_color}; background: transparent; border: none;")
+        self._tier_lat_lbls[2].setText(f"{lat:.1f} ms")
+
+        # Status label
+        status_color = "#00ff88" if ok else ("#ff3333" if "ERROR" in status else "#888888")
+        self._cvxpy_status_lbl.setText(f"STATUS: {status}")
+        self._cvxpy_status_lbl.setStyleSheet(f"color: {status_color}; background: transparent; border: none;")
+        self._cvxpy_lat_lbl.setText(f"{lat:.1f} ms")
+
+        # Risk metric boxes
+        self._cvxpy_cvar_val.setText(f"{cvar:.6f}")
+        self._cvxpy_var_val.setText(f"{var:.6f}")
+        self._cvxpy_n_val.setText(str(n_assets))
+        self._cvxpy_solver_val.setText(status[:10])
+
+        # Update specialist cards using live synced strategy data
+        specialist_updates = data.get("specialist_updates", {})
+        for sym, update in specialist_updates.items():
+            if sym in self._specialist_cards:
+                card_data = self._specialist_cards[sym]
+                direction = update.get("direction", "WATCH")
+                sig_str = update.get("signal_str", 0.5)
+                
+                # Dynamic visual styles based on direction
+                if direction == "BUY":
+                    d_color = "#00ff88" # Neon green
+                    bg_color = "#001a0e"
+                    border_color = "#00aa44"
+                elif direction == "SELL":
+                    d_color = "#ff3333" # Neon red
+                    bg_color = "#1a0000"
+                    border_color = "#aa0000"
+                else:
+                    d_color = "#f0b840" # Neon amber / yellow
+                    bg_color = "#131006"
+                    border_color = "#554400"
+                
+                card_data["intent"].setText(f"{direction} ({sig_str*100:.0f}%)")
+                card_data["intent"].setStyleSheet(f"color: {d_color}; background: transparent; border: none;")
+                card_data["frame"].setStyleSheet(
+                    f"QFrame {{ background: {bg_color}; border: 1px solid {border_color}; border-radius: 6px; padding: 4px; }}"
+                )
+
+        # Allocation table
+        self._cvxpy_table.setRowCount(0)
+        symbols_sorted = sorted(weights.keys(), key=lambda s: weights[s], reverse=True)
+        for sym in symbols_sorted:
+            w     = weights[sym]
+            scale = lot_scales.get(sym, 1.0)
+            
+            # Determine direction from specialist updates or specialist card state
+            upd = specialist_updates.get(sym, {})
+            direc = upd.get("direction")
+            if not direc:
+                card  = self._specialist_cards.get(sym)
+                direc = card["intent"].text() if card else "BUY"
+                if " " in direc:
+                    direc = direc.split()[0]
+
+            row = self._cvxpy_table.rowCount()
+            self._cvxpy_table.insertRow(row)
+
+            self._cvxpy_table.setItem(row, 0, QTableWidgetItem(sym))
+            self._cvxpy_table.setItem(row, 1, QTableWidgetItem(f"{w:.4f}"))
+            self._cvxpy_table.setItem(row, 2, QTableWidgetItem(f"{scale:.2f}x"))
+
+            dir_item = QTableWidgetItem(direc)
+            if direc == "BUY":
+                dir_color = QColor("#00ff88")
+            elif direc == "SELL":
+                dir_color = QColor("#ff3333")
+            else:
+                dir_color = QColor("#f0b840")
+            dir_item.setForeground(dir_color)
+            self._cvxpy_table.setItem(row, 3, dir_item)
+
+        # Update specialist card lot scale labels
+        for sym, scale in lot_scales.items():
+            if sym in self._specialist_cards:
+                self._specialist_cards[sym]["lot"].setText(f"lot: {scale:.2f}x")
+                self._specialist_cards[sym]["lot"].setStyleSheet(
+                    f"color: {'#00ff88' if scale >= 1.0 else '#ff8844'}; background: transparent; border: none;"
+                )

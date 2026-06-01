@@ -88,7 +88,12 @@ class WhaleMarkovPureVolumeOptimizer:
 
     def connect_and_fetch(self) -> bool:
         if not mt5.initialize():
-            return False
+            import os
+            exe_path = r"C:\Program Files\MetaTrader 5\terminal64.exe"
+            if os.path.exists(exe_path) and mt5.initialize(path=exe_path):
+                pass
+            else:
+                return False
             
         self.broker_gmt_offset = self.detect_broker_offset()
         s_info = mt5.symbol_info(self.symbol)

@@ -298,7 +298,12 @@ def fetch_all_symbols():
         return None, "MetaTrader5 package not installed"
 
     if not mt5.initialize():
-        return None, f"MT5 init failed: {mt5.last_error()}"
+        import os
+        exe_path = r"C:\Program Files\MetaTrader 5\terminal64.exe"
+        if os.path.exists(exe_path) and mt5.initialize(path=exe_path):
+            pass
+        else:
+            return None, f"MT5 init failed: {mt5.last_error()}"
 
     results = {}
     errors  = []

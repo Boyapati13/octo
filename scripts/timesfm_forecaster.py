@@ -201,7 +201,14 @@ class TimesFMForecaster:
                 self._mt5_connected = True
                 print("[TimesFM] Connected to MT5 terminal.")
             else:
-                print(f"[TimesFM] MT5 connect failed: {mt5.last_error()}")
+                # Fallback to explicit executable path launch
+                import os
+                exe_path = r"C:\Program Files\MetaTrader 5\terminal64.exe"
+                if os.path.exists(exe_path) and mt5.initialize(path=exe_path):
+                    self._mt5_connected = True
+                    print("[TimesFM] Connected to MT5 terminal via self-healing path.")
+                else:
+                    print(f"[TimesFM] MT5 connect failed: {mt5.last_error()}")
         return self._mt5_connected
 
     def _fetch_mt5_closes(

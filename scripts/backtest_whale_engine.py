@@ -195,8 +195,13 @@ class WhaleSuiteBacktester:
         """Fetch high-fidelity M15, H1, and D1 data from MetaTrader 5."""
         print("[Engine] [INFO] Initializing MetaTrader 5 connection...")
         if not mt5.initialize():
-            print(f"[Engine] [ERROR] MetaTrader 5 initialization failed: {mt5.last_error()}")
-            return False
+            import os
+            exe_path = r"C:\Program Files\MetaTrader 5\terminal64.exe"
+            if os.path.exists(exe_path) and mt5.initialize(path=exe_path):
+                print("[Engine] [SUCCESS] Self-healed MT5 initialization via executable path.")
+            else:
+                print(f"[Engine] [ERROR] MetaTrader 5 initialization failed: {mt5.last_error()}")
+                return False
             
         self.broker_gmt_offset = self.detect_broker_offset()
         

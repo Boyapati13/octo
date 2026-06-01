@@ -95,8 +95,13 @@ class WhalePureVolumeBacktester:
         
     def connect_and_fetch(self) -> bool:
         if not mt5.initialize():
-            print(f"[Engine] MT5 init failed: {mt5.last_error()}")
-            return False
+            import os
+            exe_path = r"C:\Program Files\MetaTrader 5\terminal64.exe"
+            if os.path.exists(exe_path) and mt5.initialize(path=exe_path):
+                pass
+            else:
+                print(f"[Engine] MT5 init failed: {mt5.last_error()}")
+                return False
             
         self.broker_gmt_offset = self.detect_broker_offset()
         s_info = mt5.symbol_info(self.symbol)

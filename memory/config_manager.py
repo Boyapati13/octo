@@ -121,7 +121,8 @@ _PROXY_KEY_MAP = {
 }
 
 def save_proxy_keys(keys: dict[str, str]) -> None:
-    """Save proxy provider keys to api_keys.json AND ~/.fcc/.env."""
+    """Save proxy provider keys to api_keys.json AND ~/.fcc/.env AND update os.environ."""
+    import os
     data = _load_json(CONFIG_FILE, {})
     fcc  = _read_fcc_env()
     for our_key, env_key in _PROXY_KEY_MAP.items():
@@ -130,9 +131,11 @@ def save_proxy_keys(keys: dict[str, str]) -> None:
             if val:
                 data[our_key] = val
                 fcc[env_key]  = val
+                os.environ[env_key] = val
             else:
                 data.pop(our_key, None)
                 fcc.pop(env_key, None)
+                os.environ.pop(env_key, None)
     _save_json(CONFIG_FILE, data)
     _write_fcc_env(fcc)
 

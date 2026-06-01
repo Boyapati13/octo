@@ -111,7 +111,12 @@ class ProxyPage(OctoPage):
             try:
                 from proxy.config_fcc.settings import get_settings
                 get_settings.cache_clear()
-            except ImportError:
+            except Exception:
+                pass
+            try:
+                from config.settings import get_settings
+                get_settings.cache_clear()
+            except Exception:
                 pass
         except Exception as e:
             print(f"[OCTO] Proxy save error: {e}")

@@ -22,8 +22,13 @@ def main():
     print("=" * 60)
     
     if not mt5.initialize():
-        print(f"[ERROR] Failed to initialize MT5: {mt5.last_error()}")
-        return
+        import os
+        exe_path = r"C:\Program Files\MetaTrader 5\terminal64.exe"
+        if os.path.exists(exe_path) and mt5.initialize(path=exe_path):
+            pass
+        else:
+            print(f"[ERROR] Failed to initialize MT5: {mt5.last_error()}")
+            return
         
     for symbol in symbols:
         print(f"\nRunning simulation for {symbol}...")

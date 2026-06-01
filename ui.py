@@ -2342,10 +2342,18 @@ class MainWindow(QMainWindow):
         import threading
         def _run():
             try:
+                import os
                 import MetaTrader5 as mt5
                 if not mt5.initialize():
-                    self._mt5_hud_sig.emit({"online": False})
-                    return
+                    # Fallback to explicit executable path launch
+                    exe_path = r"C:\Program Files\MetaTrader 5\terminal64.exe"
+                    if os.path.exists(exe_path):
+                        if not mt5.initialize(path=exe_path):
+                            self._mt5_hud_sig.emit({"online": False})
+                            return
+                    else:
+                        self._mt5_hud_sig.emit({"online": False})
+                        return
                 acc = mt5.account_info()
                 if not acc:
                     self._mt5_hud_sig.emit({"online": False})

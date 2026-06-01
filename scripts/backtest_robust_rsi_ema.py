@@ -130,8 +130,13 @@ class RobustRsiEmaBacktester:
     def connect_and_fetch(self) -> bool:
         """Connect to MT5 and retrieve historical candles."""
         if not mt5.initialize():
-            print(f"[Engine] [ERROR] Failed to initialize MT5: {mt5.last_error()}")
-            return False
+            import os
+            exe_path = r"C:\Program Files\MetaTrader 5\terminal64.exe"
+            if os.path.exists(exe_path) and mt5.initialize(path=exe_path):
+                pass
+            else:
+                print(f"[Engine] [ERROR] Failed to initialize MT5: {mt5.last_error()}")
+                return False
             
         print(f"[Engine] Fetching {self.candle_count} candles of {self.symbol} ({self.timeframe_str})...")
         mt5.symbol_select(self.symbol, True)
