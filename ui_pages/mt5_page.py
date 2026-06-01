@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import threading
 from typing import Any
-from PyQt6.QtCore import pyqtSignal, Qt, QTimer
+from PyQt6.QtCore import pyqtSignal, Qt, QTimer, QSize
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
     QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QGridLayout, QFrame,
@@ -15,6 +15,98 @@ from .base import (
     ACC, ACC2, GREEN, GREEN_D, RED, TEXT, TEXT_DIM, TEXT_MED, WHITE, DARK,
     FONT_UI, FONT_DATA, _hex_to_rgb_str,
 )
+
+class PredictorCandleCanvas(QWidget):
+    """A high-fidelity visual candlestick grid painting predicted price path sweeps."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumSize(QSize(250, 110))
+        self.setFixedHeight(110)
+        self.setStyleSheet("background: #0f111a; border: 1px solid #1f2233; border-radius: 6px;")
+        self._candles = []
+
+    def set_forecast(self, candles_list):
+        self._candles = candles_list
+        self.update()
+
+    def paintEvent(self, event):
+        from PyQt6.QtGui import QPainter, QPen, QBrush, QFont
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # Sleek dark background
+        painter.fillRect(self.rect(), QColor("#0f111a"))
+        
+        if not self._candles:
+            painter.setPen(QColor("#5f6368"))
+            painter.setFont(QFont(FONT_UI, 8))
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No active forecast loaded.")
+            return
+
+        w = self.width()
+        h = self.height()
+        n = len(self._candles)
+        
+        margin_x = 20
+        margin_y = 15
+        
+        # Find global min/max for scaling
+        highs = [c["high"] for c in self._candles]
+        lows = [c["low"] for c in self._candles]
+        
+        g_max = max(highs)
+        g_min = min(lows)
+        
+        price_range = g_max - g_min
+        if price_range == 0:
+            price_range = 1e-5
+            
+        def scale_y(p):
+            return int(margin_y + (h - 2 * margin_y) * (1.0 - (p - g_min) / price_range))
+            
+        col_w = (w - 2 * margin_x) / n
+        candle_w = max(4, int(col_w * 0.6))
+        
+        # Paint grid lines
+        painter.setPen(QPen(QColor("#1f2233"), 0.5, Qt.PenStyle.DashLine))
+        for y_tick in range(3):
+            y_pos = int(margin_y + (h - 2 * margin_y) * (y_tick / 2.0))
+            painter.drawLine(margin_x, y_pos, w - margin_x, y_pos)
+
+        for i, candle in enumerate(self._candles):
+            cx = int(margin_x + i * col_w + col_w / 2.0)
+            
+            c_open = candle["open"]
+            c_high = candle["high"]
+            c_low = candle["low"]
+            c_close = candle["close"]
+            
+            y_open = scale_y(c_open)
+            y_high = scale_y(c_high)
+            y_low = scale_y(c_low)
+            y_close = scale_y(c_close)
+            
+            is_bull = c_close >= c_open
+            color_hex = "#00ff88" if is_bull else "#ff3355"
+            color = QColor(color_hex)
+            
+            # 1. Paint wicks (shadows)
+            painter.setPen(QPen(color, 1.5))
+            painter.drawLine(cx, y_high, cx, y_low)
+            
+            # 2. Paint candle body
+            body_top = min(y_open, y_close)
+            body_h = max(2, abs(y_open - y_close))
+            
+            painter.setPen(QPen(color, 1))
+            painter.setBrush(QBrush(color))
+            painter.drawRect(cx - candle_w // 2, body_top, candle_w, body_h)
+            
+        # Draw labels
+        painter.setPen(QColor("#5f6368"))
+        painter.setFont(QFont(FONT_UI, 7))
+        painter.drawText(margin_x, h - 3, f"Min: {g_min:.5f}")
+        painter.drawText(w - margin_x - 70, h - 3, f"Max: {g_max:.5f}")
 
 class PremiumAlertToast(QWidget):
     """A floating, high-fidelity premium trade alert toast overlay."""
@@ -232,6 +324,7 @@ class Mt5Page(OctoPage):
     _status_sig    = pyqtSignal(dict)
     _suggestion_sig = pyqtSignal(dict)
     _timesfm_sig   = pyqtSignal(dict)
+    _kronos_sig    = pyqtSignal(dict)
     _news_sig      = pyqtSignal(dict)
     _ollama_sig    = pyqtSignal(dict)
     _auto_scan_sig = pyqtSignal(dict)
@@ -252,6 +345,7 @@ class Mt5Page(OctoPage):
         self._status_sig.connect(self._on_status_updated)
         self._suggestion_sig.connect(self._on_suggestion_received)
         self._timesfm_sig.connect(self._on_timesfm_received)
+        self._kronos_sig.connect(self._on_kronos_received)
         self._news_sig.connect(self._on_news_received)
         self._ollama_sig.connect(self._on_ollama_insight_received)
         self._auto_scan_sig.connect(self._on_auto_scan_received)
@@ -939,7 +1033,12 @@ class Mt5Page(OctoPage):
 
         self._tf_btn = self.btn("🔮 TFM Forecast", color=GREEN, height=24)
         self._tf_btn.clicked.connect(self._get_timesfm_forecast)
-        ai_inputs.addWidget(self._tf_btn, stretch=2)
+        ai_inputs.addWidget(self._tf_btn, stretch=1)
+
+        self._kronos_btn = self.btn("📈 Kronos Forecast", color=GREEN, height=24)
+        self._kronos_btn.clicked.connect(self._get_kronos_forecast)
+        ai_inputs.addWidget(self._kronos_btn, stretch=1)
+        
         ai_lay.addLayout(ai_inputs)
 
         # Continuous Auto-Scan & Alerts Controls
@@ -1099,6 +1198,72 @@ class Mt5Page(OctoPage):
         self._tf_res_lay.addWidget(tf_table_card)
         ai_lay.addWidget(self._tf_res_w)
         self._tf_res_w.hide()
+
+        # Kronos K-Line Result Area
+        self._kronos_res_w = QWidget()
+        self._kronos_res_w.setStyleSheet("background: transparent; border: none;")
+        self._kronos_res_lay = QVBoxLayout(self._kronos_res_w)
+        self._kronos_res_lay.setContentsMargins(0, 4, 0, 0)
+        self._kronos_res_lay.setSpacing(6)
+
+        # Forecast summary boxes
+        kronos_metrics = QHBoxLayout()
+        kronos_metrics.setSpacing(8)
+        
+        self._kronos_dir_w = QWidget()
+        self._kronos_dir_w.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px;")
+        kronos_dir_lay = QVBoxLayout(self._kronos_dir_w)
+        kronos_dir_lay.setContentsMargins(6,4,6,4)
+        kronos_dir_lay.addWidget(self.lbl("KRONOS TREND", 7, color=TEXT_DIM, bold=True))
+        self._kronos_dir_val = self.lbl("NEUTRAL", 13, bold=True, color=ACC2)
+        self._kronos_dir_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        kronos_dir_lay.addWidget(self._kronos_dir_val)
+        kronos_metrics.addWidget(self._kronos_dir_w, stretch=1)
+
+        self._kronos_target_w = QWidget()
+        self._kronos_target_w.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px;")
+        kronos_target_lay = QVBoxLayout(self._kronos_target_w)
+        kronos_target_lay.setContentsMargins(6,4,6,4)
+        kronos_target_lay.addWidget(self.lbl("TARGET CLOSE (+24H)", 7, color=TEXT_DIM, bold=True))
+        self._kronos_target_val = self.lbl("--", 10.5, bold=True, color=WHITE)
+        self._kronos_target_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        kronos_target_lay.addWidget(self._kronos_target_val)
+        kronos_metrics.addWidget(self._kronos_target_w, stretch=1)
+
+        self._kronos_move_w = QWidget()
+        self._kronos_move_w.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px;")
+        kronos_move_lay = QVBoxLayout(self._kronos_move_w)
+        kronos_move_lay.setContentsMargins(6,4,6,4)
+        kronos_move_lay.addWidget(self.lbl("ESTIMATED MOVE", 7, color=TEXT_DIM, bold=True))
+        self._kronos_move_val = self.lbl("--", 10.5, bold=True, color=WHITE)
+        self._kronos_move_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        kronos_move_lay.addWidget(self._kronos_move_val)
+        kronos_metrics.addWidget(self._kronos_move_w, stretch=1)
+
+        self._kronos_res_lay.addLayout(kronos_metrics)
+
+        # Custom visual candlestick canvas!
+        self._kronos_canvas = PredictorCandleCanvas()
+        self._kronos_res_lay.addWidget(self._kronos_canvas)
+
+        # Forecast intervals table
+        kronos_table_card = QFrame()
+        kronos_table_card.setStyleSheet(f"background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px; padding: 6px;")
+        kronos_table_card_lay = QVBoxLayout(kronos_table_card)
+        kronos_table_card_lay.setContentsMargins(4,4,4,4)
+        kronos_table_card_lay.addWidget(self.lbl("📈 KRONOS K-LINE FORECAST & STRUCTURAL CHANNELS", 7.5, bold=True, color=ACC2))
+        
+        self._kronos_table = QTableWidget(0, 5)
+        self._kronos_table.setHorizontalHeaderLabels([
+            "Step", "Open", "High (Max)", "Low (Min)", "Close (Last)"
+        ])
+        self._style_table(self._kronos_table)
+        self._kronos_table.setFixedHeight(120)
+        kronos_table_card_lay.addWidget(self._kronos_table)
+        
+        self._kronos_res_lay.addWidget(kronos_table_card)
+        ai_lay.addWidget(self._kronos_res_w)
+        self._kronos_res_w.hide()
         split_bottom.addWidget(ai_w, stretch=6)
 
         # Right: Financial news crawl & Economic calendar
@@ -1929,6 +2094,8 @@ class Mt5Page(OctoPage):
             return
             
         self._ai_res_lbl.hide()
+        self._tf_res_w.hide()
+        self._kronos_res_w.hide()
         self._ai_res_w.show()
         
         self._sug_dir_val.setText("WAIT")
@@ -2147,6 +2314,7 @@ class Mt5Page(OctoPage):
             
         self._ai_res_lbl.hide()
         self._ai_res_w.hide()
+        self._kronos_res_w.hide()
         self._tf_res_w.show()
         
         self._tf_dir_val.setText("WAIT")
@@ -2185,6 +2353,133 @@ class Mt5Page(OctoPage):
                 self._timesfm_sig.emit({"error": str(e)})
             except RuntimeError:
                 return
+
+    def _get_kronos_forecast(self):
+        symbol = self._ai_symbol_cb.currentText()
+        timeframe = self._ai_tf_cb.currentText()
+        if not symbol:
+            return
+            
+        self._ai_res_lbl.hide()
+        self._ai_res_w.hide()
+        self._tf_res_w.hide()
+        self._kronos_res_w.show()
+        
+        self._kronos_dir_val.setText("WAIT")
+        self._kronos_dir_val.setStyleSheet(f"color: {ACC2}; background: transparent; font-size: 16pt; font-weight: bold;")
+        self._kronos_dir_w.setStyleSheet(f"background: {DARK}; border: 1px solid {BORDER}; border-radius: 4px;")
+        
+        self._kronos_target_val.setText("FORECASTING...")
+        self._kronos_move_val.setText("ANALYZING...")
+        self._kronos_table.setRowCount(0)
+        self._kronos_canvas.set_forecast([])
+        
+        self._ai_btn.setEnabled(False)
+        self._tf_btn.setEnabled(False)
+        self._kronos_btn.setEnabled(False)
+
+        threading.Thread(target=self._get_kronos_forecast_thread, args=(symbol, timeframe), daemon=True).start()
+
+    def _get_kronos_forecast_thread(self, symbol: str, timeframe: str):
+        from agent.mcp_bridge import call_tool
+        try:
+            # Check if self has been deleted
+            _ = self.objectName()
+            
+            res = call_tool("metatrader5", "forecast_kline_trend", {"symbol": symbol, "timeframe": timeframe, "horizon": 24})
+            fc = self._parse_json(res)
+            
+            # Recheck if deleted before emit
+            _ = self.objectName()
+            if fc and isinstance(fc, dict):
+                self._kronos_sig.emit(fc)
+            else:
+                self._kronos_sig.emit({"error": res})
+        except RuntimeError:
+            return
+        except Exception as e:
+            try:
+                _ = self.objectName()
+                self._kronos_sig.emit({"error": str(e)})
+            except RuntimeError:
+                return
+
+    def _on_kronos_received(self, data: dict):
+        self._ai_btn.setEnabled(True)
+        self._tf_btn.setEnabled(True)
+        self._kronos_btn.setEnabled(True)
+        
+        if "error" in data:
+            self._kronos_target_val.setText("ERROR")
+            self._kronos_move_val.setText("FAILED")
+            self._kronos_table.setRowCount(1)
+            self._set_cell(self._kronos_table, 0, 0, "ERR")
+            self._set_cell(self._kronos_table, 0, 1, str(data["error"])[:40], bold=True).setForeground(QColor(RED))
+            self._set_cell(self._kronos_table, 0, 2, "--")
+            self._set_cell(self._kronos_table, 0, 3, "--")
+            self._set_cell(self._kronos_table, 0, 4, "--")
+            return
+
+        direction = data.get("direction", "NEUTRAL").upper()
+        current_price = data.get("current_price", 0.0)
+        forecast_price = data.get("forecast_price", 0.0)
+        net_change = data.get("net_change", 0.0)
+        pct_change = data.get("pct_change", 0.0)
+        
+        # 1. Update Direction Pill
+        self._kronos_dir_val.setText(direction)
+        if direction == "BULLISH":
+            self._kronos_dir_val.setStyleSheet(f"color: {GREEN}; background: transparent; font-size: 16pt; font-weight: bold;")
+            self._kronos_dir_w.setStyleSheet(f"background: {DARK}; border: 1px solid {GREEN}; border-radius: 4px;")
+        elif direction == "BEARISH":
+            self._kronos_dir_val.setStyleSheet(f"color: {RED}; background: transparent; font-size: 16pt; font-weight: bold;")
+            self._kronos_dir_w.setStyleSheet(f"background: {DARK}; border: 1px solid {RED}; border-radius: 4px;")
+        else:
+            self._kronos_dir_val.setStyleSheet(f"color: {ACC2}; background: transparent; font-size: 16pt; font-weight: bold;")
+            self._kronos_dir_w.setStyleSheet(f"background: {DARK}; border: 1px solid {BORDER}; border-radius: 4px;")
+
+        # 2. Update Metrics Summary
+        self._kronos_target_val.setText(f"{forecast_price:.5f}")
+        sign = "+" if net_change >= 0 else ""
+        self._kronos_move_val.setText(f"{sign}{net_change:+.5f} ({sign}{pct_change:+.2f}%)")
+        move_col = GREEN if net_change >= 0 else RED
+        self._kronos_move_val.setStyleSheet(f"color: {move_col}; background: transparent; font-size: 12pt; font-weight: bold;")
+
+        # 3. Populate detailed increments table and visual canvas
+        steps_to_show = [1, 4, 8, 12, 24]
+        
+        opens = data.get("opens", [])
+        highs = data.get("highs", [])
+        lows = data.get("lows", [])
+        closes = data.get("closes", [])
+        volumes = data.get("volumes", [])
+        
+        actual_steps = [s for s in steps_to_show if s <= len(closes)]
+        self._kronos_table.setRowCount(len(actual_steps))
+        
+        for idx, step in enumerate(actual_steps):
+            o_val = opens[step - 1]
+            h_val = highs[step - 1]
+            l_val = lows[step - 1]
+            c_val = closes[step - 1]
+            
+            self._set_cell(self._kronos_table, idx, 0, f"+{step} periods")
+            self._set_cell(self._kronos_table, idx, 1, f"{o_val:.5f}")
+            self._set_cell(self._kronos_table, idx, 2, f"{h_val:.5f}").setForeground(QColor(GREEN))
+            self._set_cell(self._kronos_table, idx, 3, f"{l_val:.5f}").setForeground(QColor(RED))
+            self._set_cell(self._kronos_table, idx, 4, f"{c_val:.5f}", bold=True)
+            
+        # Draw on the visual candlestick canvas!
+        canvas_candles = []
+        for i in range(len(closes)):
+            canvas_candles.append({
+                "open": opens[i],
+                "high": highs[i],
+                "low": lows[i],
+                "close": closes[i],
+                "volume": volumes[i]
+            })
+        self._kronos_canvas.set_forecast(canvas_candles)
 
     def _on_timesfm_received(self, data: dict):
         self._ai_btn.setEnabled(True)
