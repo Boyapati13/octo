@@ -911,12 +911,6 @@ class _ProjectWorkspace(QWidget):
             worker = _AgentWorker(agent_id, goal, model, self._project)
             worker.moveToThread(thread)
 
-            # Connect signals with `self` as the receiver context. This forces the lambda
-            # to run in `self`'s thread (the main GUI thread), preventing cross-thread UI updates
-            # and resulting QObject tree corruption/crashes.
-            # In PyQt6, passing a context object to connect a lambda isn't supported like in PySide.
-            # We must use proper slot functions or ensure the lambda is connected correctly.
-            # We will use explicit slot methods to avoid cross-thread UI issues.
             # Create wrapper methods on `self` and connect to them using partials.
             # This ensures PyQt6 correctly routes the cross-thread signal to the main GUI thread.
             worker.progress.connect(partial(self._on_progress_wrapper, tile))
@@ -963,7 +957,11 @@ class _ProjectWorkspace(QWidget):
         t = self._threads.pop(agent_id, None)
         if t:
             t.quit()
-        self._workers.pop(agent_id, None)
+            t.wait()
+            t.deleteLater()
+        w = self._workers.pop(agent_id, None)
+        if w:
+            w.deleteLater()
 
     def _update_agent_count(self):
         n = sum(1 for t in self._agent_tiles.values() if hasattr(t, "_status") and t._status == "running")
