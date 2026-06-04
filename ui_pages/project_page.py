@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+import deerflow_bridge
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QObject
 from PyQt6.QtGui import QFont, QColor
 from PyQt6.QtWidgets import (
@@ -116,12 +117,13 @@ class _AgentWorker(QObject):
 
     def run(self):
         try:
-            from deerflow_bridge import (               # type: ignore
-                deep_research, is_running, chat
-            )
+            import os
+            from deerflow_bridge import deep_research
             proj_root = self.project.get("path", "")
             goal_ctx  = self.goal
+
             if proj_root:
+                os.environ["OCTO_PROJECT_ROOT"] = str(proj_root)
                 goal_ctx = (
                     f"[Project: {self.project.get('name','?')} | Root: {proj_root}]\n"
                     + self.goal
@@ -130,17 +132,11 @@ class _AgentWorker(QObject):
             def _on_chunk(chunk: str):
                 self.progress.emit(self.agent_id, chunk)
 
-            # Use the full iterative multi-agent loop for advanced capabilities
-            from actions.multi_agent import multi_agent_loop
-            result = multi_agent_loop(
-                parameters={
-                    "task": self.goal,
-                    "working_dir": proj_root,
-                    "session_id": self.agent_id,
-                    "model": self.model
-                },
-                on_progress=_on_chunk,
-                player=None, speak=None,
+            # Route to deep_research so we can stream progress directly to the UI
+            result = deep_research(
+                topic=goal_ctx,
+                session_id=self.agent_id,
+                on_progress=_on_chunk
             )
             self.finished.emit(self.agent_id, result or "✅ Done.")
         except Exception as e:
